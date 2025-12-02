@@ -6,7 +6,7 @@ Exposes constraint solving and optimization capabilities via MCP tools.
 import logging
 import sys
 
-from chuk_mcp_server import Server, tool
+from chuk_mcp_server import ChukMCPServer, tool
 
 from chuk_mcp_solver.models import SolveConstraintModelRequest, SolveConstraintModelResponse
 from chuk_mcp_solver.providers import get_provider_for_tool
@@ -152,7 +152,7 @@ def main() -> None:
         logging.getLogger("httpx").setLevel(logging.ERROR)
 
     # Create and run server
-    server = Server("chuk-mcp-solver")
+    server = ChukMCPServer("chuk-mcp-solver")
 
     if transport == "stdio":
         server.run(stdio=True)

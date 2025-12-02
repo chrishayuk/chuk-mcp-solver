@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.3] - 2025-12-02
+
+### Fixed
+
+#### Server Import Fix for Deployment
+- **Issue**: ImportError when deploying to Fly.io: `cannot import name 'Server' from 'chuk_mcp_server'`
+- **Root Cause**: The class name changed from `Server` to `ChukMCPServer` in chuk-mcp-server
+- **Fix**: Updated `src/chuk_mcp_solver/server.py` to import and use `ChukMCPServer` instead of `Server`
+- **Impact**: Server now starts successfully in Docker/Fly.io environments
+
+## [0.1.2] - 2025-12-02
+
+Published to PyPI with all Docker support and fixes.
+
 ## [0.1.1] - 2025-12-02
 
 ### Fixed

@@ -305,7 +305,19 @@ for var in response.solutions[0].variables:
 
 ## Examples
 
-The `examples/` directory contains 11 complete examples demonstrating different constraint types and use cases:
+The `examples/` directory contains 12 complete examples demonstrating different constraint types and use cases:
+
+### Performance & Features
+
+**Performance Metrics Demo** (`performance_metrics_demo.py`) 🆕
+- **Features**: Enhanced status codes, optimality gap, solve timing
+- **Use Case**: Understanding solver performance and timeout behavior
+
+```bash
+python examples/performance_metrics_demo.py
+```
+
+Demonstrates the new v0.2.0+ performance metrics: `optimality_gap`, `solve_time_ms`, `timeout_best`, and `timeout_no_solution` status codes.
 
 ### Logic & Constraint Satisfaction
 
@@ -728,8 +740,10 @@ Validation checks:
 
 ```python
 {
-    "status": "optimal" | "feasible" | "satisfied" | "infeasible" | "unbounded" | "timeout" | "error",
+    "status": "optimal" | "feasible" | "satisfied" | "infeasible" | "unbounded" | "timeout_best" | "timeout_no_solution" | "error",
     "objective_value": 42.0,  # if applicable
+    "optimality_gap": 0.0,  # % gap from best bound (0 = proven optimal)
+    "solve_time_ms": 1234,  # actual wall-clock solve time
     "solutions": [
         {
             "variables": [
@@ -744,6 +758,20 @@ Validation checks:
     }
 }
 ```
+
+**Status Codes:**
+- `optimal`: Proven optimal solution found
+- `feasible`: Valid solution found, but may not be optimal
+- `satisfied`: All constraints satisfied (for satisfy mode)
+- `infeasible`: No solution exists
+- `unbounded`: Objective can be improved infinitely
+- `timeout_best`: Timeout reached, returning best solution found so far
+- `timeout_no_solution`: Timeout reached before finding any solution
+- `error`: Solver error occurred
+
+**Performance Metrics:**
+- `optimality_gap`: Percentage gap from best bound (0.0 for optimal solutions)
+- `solve_time_ms`: Actual wall-clock time spent solving
 
 ## Configuration
 

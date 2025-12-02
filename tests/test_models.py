@@ -85,8 +85,10 @@ def test_solver_status_enum():
     assert SolverStatus.INFEASIBLE == "infeasible"
     assert SolverStatus.UNBOUNDED == "unbounded"
     assert SolverStatus.TIMEOUT == "timeout"
+    assert SolverStatus.TIMEOUT_BEST == "timeout_best"
+    assert SolverStatus.TIMEOUT_NO_SOLUTION == "timeout_no_solution"
     assert SolverStatus.ERROR == "error"
-    assert len(SolverStatus) == 7
+    assert len(SolverStatus) == 9
 
 
 # ============================================================================

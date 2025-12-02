@@ -27,6 +27,7 @@ def build_success_response(
     solver: cp_model.CpSolver,
     var_map: dict[str, cp_model.IntVar],
     request: SolveConstraintModelRequest,
+    solve_time_ms: int = 0,
 ) -> SolveConstraintModelResponse:
     """Build a successful solution response.
 
@@ -35,6 +36,7 @@ def build_success_response(
         solver: The CP-SAT solver with solution.
         var_map: Mapping from variable ID to CP-SAT variable.
         request: The original request.
+        solve_time_ms: Actual wall-clock solve time in milliseconds.
 
     Returns:
         SolveConstraintModelResponse with solution data.
@@ -56,14 +58,36 @@ def build_success_response(
 
     # Get objective value if applicable
     objective_value = None
+    optimality_gap = None
     if request.objective:
         objective_value = solver.ObjectiveValue()
+
+        # Calculate optimality gap for optimization problems
+        # Gap = 100 * |best_bound - current_value| / |current_value|
+        if status in (SolverStatus.FEASIBLE, SolverStatus.TIMEOUT_BEST):
+            try:
+                best_bound = solver.BestObjectiveBound()
+                if objective_value != 0:
+                    optimality_gap = (
+                        100.0 * abs(best_bound - objective_value) / abs(objective_value)
+                    )
+                else:
+                    # Handle zero objective value case
+                    optimality_gap = abs(best_bound - objective_value)
+            except Exception:
+                # BestObjectiveBound() may not be available in all cases
+                pass
+        elif status == SolverStatus.OPTIMAL:
+            # Optimal solution has zero gap
+            optimality_gap = 0.0
 
     # Identify binding constraints
     binding_constraints = identify_binding_constraints(solver, var_map, request)
 
     # Build explanation
-    summary = build_solution_summary(status, objective_value, len(binding_constraints))
+    summary = build_solution_summary(
+        status, objective_value, len(binding_constraints), optimality_gap
+    )
     explanation = Explanation(
         summary=summary,
         binding_constraints=binding_constraints,
@@ -72,6 +96,8 @@ def build_success_response(
     return SolveConstraintModelResponse(
         status=status,
         objective_value=objective_value,
+        optimality_gap=optimality_gap,
+        solve_time_ms=solve_time_ms,
         solutions=[solution],
         explanation=explanation,
     )
@@ -152,7 +178,10 @@ def identify_binding_constraints(
 
 
 def build_solution_summary(
-    status: SolverStatus, objective_value: float | None, num_binding: int
+    status: SolverStatus,
+    objective_value: float | None,
+    num_binding: int,
+    optimality_gap: float | None = None,
 ) -> str:
     """Build a human-readable solution summary.
 
@@ -160,6 +189,7 @@ def build_solution_summary(
         status: The solver status.
         objective_value: The objective value, if any.
         num_binding: Number of binding constraints.
+        optimality_gap: Optimality gap percentage, if available.
 
     Returns:
         Summary string.
@@ -169,9 +199,14 @@ def build_solution_summary(
             summary = f"Found optimal solution with objective value {objective_value:.2f}."
         else:
             summary = "Found optimal solution."
-    elif status == SolverStatus.FEASIBLE:
+    elif status in (SolverStatus.FEASIBLE, SolverStatus.TIMEOUT_BEST):
         if objective_value is not None:
-            summary = f"Found feasible solution with objective value {objective_value:.2f} (may not be optimal)."
+            summary = f"Found feasible solution with objective value {objective_value:.2f}"
+            if optimality_gap is not None and optimality_gap > 0:
+                summary += f" (gap: {optimality_gap:.2f}% from best bound)"
+            else:
+                summary += " (may not be optimal)"
+            summary += "."
         else:
             summary = "Found feasible solution (may not be optimal)."
     else:  # SATISFIED

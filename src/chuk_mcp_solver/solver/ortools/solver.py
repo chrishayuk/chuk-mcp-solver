@@ -3,6 +3,8 @@
 Main solver class that orchestrates constraint solving using Google OR-Tools.
 """
 
+import time
+
 from ortools.sat.python import cp_model
 
 from chuk_mcp_solver.cache import get_global_cache
@@ -108,7 +110,10 @@ class ORToolsSolver(SolverProvider):
                         if var_id in var_map:
                             model.AddHint(var_map[var_id], value)
 
+                # Track solve time
+                start_time = time.time()
                 status = solver.Solve(model)
+                solve_time_ms = int((time.time() - start_time) * 1000)
 
                 # Convert status
                 solver_status = self._convert_status(status, request.mode)
@@ -129,7 +134,9 @@ class ORToolsSolver(SolverProvider):
                         objective_value=objective_value,
                         num_solutions=1,
                     )
-                    response = build_success_response(solver_status, solver, var_map, request)
+                    response = build_success_response(
+                        solver_status, solver, var_map, request, solve_time_ms
+                    )
 
                     # Cache successful solution
                     if request.search and request.search.enable_solution_caching:
@@ -157,27 +164,42 @@ class ORToolsSolver(SolverProvider):
                     elif solver_status == SolverStatus.TIMEOUT:
                         tracker.set_outcome(outcome=SolveOutcome.TIMEOUT)
 
+                        # Check if solver found any solution
+                        has_solution = status in (cp_model.FEASIBLE, cp_model.OPTIMAL)
+
                         # Return partial solution if requested and available
-                        if request.search and request.search.return_partial_solution:
-                            # Check if solver found any solution (even non-optimal)
-                            # Note: status can be FEASIBLE or UNKNOWN when timeout occurs
-                            if status in (cp_model.FEASIBLE, cp_model.OPTIMAL):
-                                # Return best solution found so far
-                                response = build_success_response(
-                                    SolverStatus.FEASIBLE, solver, var_map, request
+                        if (
+                            request.search
+                            and request.search.return_partial_solution
+                            and has_solution
+                        ):
+                            # Return best solution found so far with TIMEOUT_BEST status
+                            response = build_success_response(
+                                SolverStatus.TIMEOUT_BEST, solver, var_map, request, solve_time_ms
+                            )
+                            # Add note about timeout
+                            if response.explanation:
+                                response.explanation.summary += (
+                                    "\n\nNote: Solver timed out. "
+                                    "This is the best solution found so far (not proven optimal)."
                                 )
-                                # Add note about timeout
-                                if response.explanation:
-                                    response.explanation.summary += (
-                                        "\n\nNote: Solver timed out. "
-                                        "This is the best solution found so far."
-                                    )
-                                else:
-                                    response.explanation = Explanation(
-                                        summary="Solver timed out. "
-                                        "This is the best solution found so far."
-                                    )
-                                return response
+                            else:
+                                response.explanation = Explanation(
+                                    summary="Solver timed out. "
+                                    "This is the best solution found so far (not proven optimal)."
+                                )
+                            return response
+                        else:
+                            # No solution found before timeout
+                            return SolveConstraintModelResponse(
+                                status=SolverStatus.TIMEOUT_NO_SOLUTION,
+                                solve_time_ms=solve_time_ms,
+                                explanation=Explanation(
+                                    summary="Solver timed out before finding any solution. "
+                                    "Try increasing max_time_ms, simplifying the problem, "
+                                    "or providing a warm-start solution hint."
+                                ),
+                            )
                     else:
                         tracker.set_outcome(outcome=SolveOutcome.ERROR)
 

@@ -86,7 +86,9 @@ class SolverStatus(str, Enum):
     SATISFIED = "satisfied"
     INFEASIBLE = "infeasible"
     UNBOUNDED = "unbounded"
-    TIMEOUT = "timeout"
+    TIMEOUT = "timeout"  # Deprecated: use TIMEOUT_BEST or TIMEOUT_NO_SOLUTION
+    TIMEOUT_BEST = "timeout_best"  # Timeout reached but best-so-far solution available
+    TIMEOUT_NO_SOLUTION = "timeout_no_solution"  # Timeout reached with no solution found
     ERROR = "error"
 
 
@@ -569,11 +571,20 @@ class SolveConstraintModelResponse(BaseModel):
     )
     status: SolverStatus = Field(
         ...,
-        description="Solution status: optimal, feasible, satisfied, infeasible, unbounded, timeout, or error",
+        description="Solution status: optimal, feasible, satisfied, infeasible, unbounded, timeout_best, timeout_no_solution, or error",
     )
     objective_value: float | None = Field(
         default=None,
         description="Objective value for the best solution, if applicable",
+    )
+    optimality_gap: float | None = Field(
+        default=None,
+        description="Optimality gap as percentage (0-100) from best bound; only for optimization problems. Lower is better, 0 means proven optimal",
+    )
+    solve_time_ms: int = Field(
+        default=0,
+        description="Actual wall-clock solve time in milliseconds",
+        ge=0,
     )
     solutions: list[Solution] = Field(
         default_factory=list,

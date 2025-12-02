@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  solver:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: chuk-mcp-solver:latest
+    container_name: chuk-mcp-solver
+    restart: unless-stopped
+
+    # Environment variables
+    environment:
+      - CHUK_SOLVER_PROVIDER=ortools
+      - PYTHONUNBUFFERED=1
+
+    # Port mapping for SSE transport
+    ports:
+      - "8000:8000"
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "python", "-c", "import chuk_mcp_solver; print('OK')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+    # Resource limits (optional)
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

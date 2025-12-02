@@ -152,12 +152,29 @@ A powerful Model Context Protocol (MCP) server that provides constraint satisfac
 
 ## Installation
 
-### Quick Start with uvx (Recommended)
+### ⚡ Quick Start with uvx (Recommended)
+
+No installation required! Use `uvx` to run directly:
 
 ```bash
 # Run directly without installation
 uvx chuk-mcp-solver
 ```
+
+Or install with `uvx`:
+
+```bash
+# Install globally
+uvx install chuk-mcp-solver
+```
+
+### 🌐 Public MCP Endpoint
+
+Use our hosted solver directly - no installation needed:
+
+- **MCP Endpoint**: `https://solver.chukai.io/mcp`
+
+Perfect for testing, demos, or production use without infrastructure setup.
 
 ### Install from PyPI
 
@@ -182,7 +199,25 @@ uv pip install -e ".[dev]"
 
 ### As an MCP Server
 
+#### Option 1: Public Hosted Endpoint (Easiest)
+
+Use our hosted solver at `solver.chukai.io` - no installation required!
+
 Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+
+```json
+{
+  "mcpServers": {
+    "solver": {
+      "url": "https://solver.chukai.io/mcp"
+    }
+  }
+}
+```
+
+#### Option 2: Local with uvx (Recommended)
+
+Run locally using `uvx` for full control and privacy:
 
 ```json
 {
@@ -195,7 +230,9 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 }
 ```
 
-Or use locally:
+#### Option 3: Development Mode
+
+For local development from source:
 
 ```json
 {
@@ -208,6 +245,23 @@ Or use locally:
   }
 }
 ```
+
+### With Docker
+
+Build and run using Docker:
+
+```bash
+# Build the image
+docker build -t chuk-mcp-solver .
+
+# Run the container
+docker run -p 8000:8000 chuk-mcp-solver
+
+# Or use docker-compose
+docker-compose up -d
+```
+
+The Docker container runs the MCP server in HTTP mode by default on port 8000. For stdio mode (local usage), run without arguments: `python -m chuk_mcp_solver.server`
 
 ### Programmatic Usage
 

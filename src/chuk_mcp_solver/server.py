@@ -3,7 +3,6 @@
 Exposes constraint solving and optimization capabilities via MCP tools.
 """
 
-import argparse
 import logging
 import sys
 
@@ -135,40 +134,31 @@ async def solve_constraint_model(
 
 def main() -> None:
     """Main entry point for the MCP server."""
-    parser = argparse.ArgumentParser(
-        description="CHUK MCP Solver - Constraint and optimization solver"
-    )
-    parser.add_argument(
-        "--transport",
-        choices=["stdio", "sse"],
-        default="stdio",
-        help="Transport protocol (default: stdio)",
-    )
-    args = parser.parse_args()
+    # Default to stdio for MCP compatibility (Claude Desktop, mcp-cli)
+    transport = "stdio"
 
-    # Configure logging
-    log_level = logging.WARNING
-    if args.transport == "stdio":
-        # In stdio mode, log only to stderr and suppress noisy libraries
-        logging.basicConfig(
-            level=log_level,
-            format="%(levelname)s:%(name)s:%(message)s",
-            stream=sys.stderr,
-        )
-        # Suppress noisy loggers
+    # Allow HTTP mode via command line
+    if len(sys.argv) > 1 and sys.argv[1] in ["http", "--http"]:
+        transport = "http"
+        logger.warning("Starting CHUK MCP Solver in HTTP mode")
+
+    # Suppress logging in STDIO mode
+    if transport == "stdio":
+        # Set chuk_mcp_server loggers to ERROR only
         logging.getLogger("chuk_mcp_server").setLevel(logging.ERROR)
+        logging.getLogger("chuk_mcp_server.core").setLevel(logging.ERROR)
+        logging.getLogger("chuk_mcp_server.stdio_transport").setLevel(logging.ERROR)
+        # Suppress httpx logging
         logging.getLogger("httpx").setLevel(logging.ERROR)
-    else:
-        logging.basicConfig(
-            level=log_level,
-            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        )
-
-    logger.info(f"Starting CHUK MCP Solver with transport: {args.transport}")
 
     # Create and run server
     server = Server("chuk-mcp-solver")
-    server.run(transport=args.transport)
+
+    if transport == "stdio":
+        server.run(stdio=True)
+    else:
+        # Bind to all interfaces for Docker containers
+        server.run(host="0.0.0.0", port=8000)  # nosec B104
 
 
 if __name__ == "__main__":

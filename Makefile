@@ -1,4 +1,4 @@
-.PHONY: clean clean-pyc clean-build clean-test clean-all test run build publish publish-test publish-manual help install dev-install version bump-patch bump-minor bump-major release
+.PHONY: clean clean-pyc clean-build clean-test clean-all test run build publish publish-test publish-manual help install dev-install version bump-patch bump-minor bump-major release docker-build docker-run docker-stop docker-clean docker-test docker-shell docker-push docker-compose-up docker-compose-down docker-help
 
 # Default target
 help:
@@ -20,6 +20,12 @@ help:
 	@echo "  check          - Run all checks (lint, typecheck, security, test)"
 	@echo "  run            - Run the MCP server"
 	@echo "  build          - Build the project"
+	@echo ""
+	@echo "Docker targets:"
+	@echo "  docker-help         - Show all Docker targets"
+	@echo "  docker-build        - Build Docker image"
+	@echo "  docker-run          - Run Docker container"
+	@echo "  docker-compose-up   - Start services with docker-compose"
 	@echo ""
 	@echo "Release targets:"
 	@echo "  version        - Show current version"
@@ -413,3 +419,74 @@ security:
 # Run all checks
 check: lint typecheck security test
 	@echo "All checks completed."
+
+# ============================================================================
+# Docker Targets
+# ============================================================================
+
+.PHONY: docker-build docker-run docker-stop docker-clean docker-test docker-shell docker-push docker-compose-up docker-compose-down docker-help
+
+# Docker help
+docker-help:
+	@echo "Docker targets:"
+	@echo "  docker-build        - Build Docker image"
+	@echo "  docker-run          - Run Docker container"
+	@echo "  docker-stop         - Stop running container"
+	@echo "  docker-clean        - Remove container and image"
+	@echo "  docker-test         - Run tests in Docker container"
+	@echo "  docker-shell        - Open shell in running container"
+	@echo "  docker-push         - Push image to registry"
+	@echo "  docker-compose-up   - Start services with docker-compose"
+	@echo "  docker-compose-down - Stop services with docker-compose"
+
+# Build Docker image
+docker-build:
+	@echo "Building Docker image..."
+	docker build -t chuk-mcp-solver:latest .
+
+# Run Docker container
+docker-run:
+	@echo "Running Docker container..."
+	docker run -d -p 8000:8000 --name chuk-mcp-solver chuk-mcp-solver:latest
+
+# Stop Docker container
+docker-stop:
+	@echo "Stopping Docker container..."
+	docker stop chuk-mcp-solver 2>/dev/null || true
+	docker rm chuk-mcp-solver 2>/dev/null || true
+
+# Clean Docker artifacts
+docker-clean: docker-stop
+	@echo "Cleaning Docker artifacts..."
+	docker rmi chuk-mcp-solver:latest 2>/dev/null || true
+
+# Run tests in Docker
+docker-test:
+	@echo "Running tests in Docker container..."
+	docker run --rm chuk-mcp-solver:latest pytest tests/ -v
+
+# Open shell in running container
+docker-shell:
+	@echo "Opening shell in container..."
+	docker exec -it chuk-mcp-solver /bin/bash
+
+# Push to registry
+docker-push:
+	@echo "Pushing Docker image to registry..."
+	@echo "Note: Update image tag first (e.g., docker tag chuk-mcp-solver:latest your-registry/chuk-mcp-solver:0.1.1)"
+	@echo "Then run: docker push your-registry/chuk-mcp-solver:0.1.1"
+
+# Docker Compose - Start services
+docker-compose-up:
+	@echo "Starting services with docker-compose..."
+	docker-compose up -d
+
+# Docker Compose - Stop services
+docker-compose-down:
+	@echo "Stopping services with docker-compose..."
+	docker-compose down
+
+# Rebuild and restart with docker-compose
+docker-compose-rebuild:
+	@echo "Rebuilding and restarting services..."
+	docker-compose up -d --build

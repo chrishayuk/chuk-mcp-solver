@@ -393,6 +393,16 @@ class Objective(BaseModel):
 # ============================================================================
 
 
+class SearchStrategy(str, Enum):
+    """Search strategy hint for the solver."""
+
+    AUTO = "auto"  # Let solver decide
+    FIRST_FAIL = "first_fail"  # Choose variable with smallest domain first
+    LARGEST_FIRST = "largest_first"  # Choose variable with largest domain first
+    RANDOM = "random"  # Random variable selection
+    CHEAPEST_FIRST = "cheapest_first"  # Choose variable with smallest impact
+
+
 class SearchConfig(BaseModel):
     """Solver search configuration and limits."""
 
@@ -418,6 +428,23 @@ class SearchConfig(BaseModel):
     warm_start_solution: dict[str, int] | None = Field(
         default=None,
         description="Optional warm-start solution hint (variable_id -> value mapping)",
+    )
+    random_seed: int | None = Field(
+        default=None,
+        description="Random seed for deterministic solving (enables reproducible results)",
+        ge=0,
+    )
+    strategy: SearchStrategy = Field(
+        default=SearchStrategy.AUTO,
+        description="Search strategy hint for variable selection",
+    )
+    return_partial_solution: bool = Field(
+        default=False,
+        description="Return best solution found so far if timeout is reached",
+    )
+    enable_solution_caching: bool = Field(
+        default=True,
+        description="Cache solutions to avoid re-solving identical problems",
     )
 
 

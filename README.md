@@ -3,8 +3,8 @@
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-compatible-brightgreen.svg)](https://modelcontextprotocol.io)
-[![Tests](https://img.shields.io/badge/tests-105%20passed-success.svg)](tests/)
-[![Coverage](https://img.shields.io/badge/coverage-91%25-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-170%20passed-success.svg)](tests/)
+[![Coverage](https://img.shields.io/badge/coverage-93%25-brightgreen.svg)](tests/)
 
 🔧 **General-purpose constraint and optimization solver as an MCP server**
 
@@ -46,9 +46,23 @@ A powerful Model Context Protocol (MCP) server that provides constraint satisfac
 - Human-readable explanations
 - Metadata preservation
 
+🤖 **LLM-Optimized** (Phase 2: Developer Experience)
+- Pre-solve validation with actionable error messages
+- Smart typo detection ("Did you mean...?" suggestions)
+- Three-level validation severity (ERROR, WARNING, INFO)
+- Structured observability and diagnostics
+- Detailed infeasibility analysis
+
+⚡ **Performance & Power** (Phase 3)
+- Solution caching with problem hashing (LRU + TTL)
+- Partial solutions (best-so-far on timeout)
+- Search strategy hints (first-fail, random, etc.)
+- Deterministic solving with random seeds
+- Cache hit rate tracking
+
 ✅ **Production Quality**
-- 105 comprehensive tests (all passing)
-- 91% test coverage
+- 170 comprehensive tests (all passing)
+- 93% test coverage
 - Type-safe with mypy
 - Extensive error handling
 
@@ -237,7 +251,7 @@ for var in response.solutions[0].variables:
 
 ## Examples
 
-The `examples/` directory contains 8 complete examples demonstrating different constraint types and use cases:
+The `examples/` directory contains 11 complete examples demonstrating different constraint types and use cases:
 
 ### Logic & Constraint Satisfaction
 
@@ -326,6 +340,38 @@ python examples/tool_selector.py
 ```
 
 Selects optimal AI models/tools for tasks under budget constraints using implication constraints.
+
+### Complex Real-World Examples 🔥
+
+**GPU Job Scheduler** (`gpu_job_scheduler.py`) 🆕
+- **Constraints**: Resource assignment, memory limits, job dependencies, deadlines, budget
+- **Use Case**: ML/AI workload scheduling across heterogeneous GPUs
+
+```bash
+python examples/gpu_job_scheduler.py
+```
+
+Schedules ML jobs (embedding generation, fine-tuning, inference) across different GPU types (A100, V100, T4) optimizing cost vs time with resource constraints.
+
+**Embedding Pipeline Scheduler** (`embedding_pipeline_scheduler.py`) 🆕
+- **Constraints**: Multi-stage pipeline, rate limits, throughput constraints
+- **Use Case**: Document processing through embedding extraction pipeline
+
+```bash
+python examples/embedding_pipeline_scheduler.py
+```
+
+Orchestrates document batches through preprocessing → embedding → vector DB ingestion, selecting optimal providers (OpenAI, Cohere, Voyage) under rate limits.
+
+**ML Pipeline Orchestrator** (`ml_pipeline_orchestrator.py`) 🆕
+- **Constraints**: End-to-end pipeline, conditional deployment, quality gates
+- **Use Case**: Multi-variant model training with A/B testing
+
+```bash
+python examples/ml_pipeline_orchestrator.py
+```
+
+Trains multiple model variants through full ML lifecycle (ingest → preprocess → train → eval → deploy), deploys only models meeting quality thresholds.
 
 ### Example Output
 
@@ -531,10 +577,98 @@ Solve a general constraint or optimization model.
         "max_solutions": 1,
         "num_search_workers": 4,
         "log_search_progress": false,
+        "random_seed": 42,  # Deterministic solving
+        "strategy": "first_fail",  # Search strategy hint
+        "return_partial_solution": true,  # Return best-so-far on timeout
+        "enable_solution_caching": true,  # Cache solutions
         "warm_start_solution": {"x": 5, "y": 3}
     }
 }
 ```
+
+**Search Strategies:**
+
+- `"auto"` (default): Let solver choose best strategy
+- `"first_fail"`: Choose variables with smallest domain first
+- `"largest_first"`: Choose variables with largest domain first
+- `"random"`: Random variable selection
+- `"cheapest_first"`: Choose least expensive variables first
+
+**Solution Caching:**
+
+The solver automatically caches solutions using problem hashing to avoid re-solving identical problems. Enable/disable with `enable_solution_caching` (default: true).
+
+```python
+# First solve - hits the solver
+response1 = await solver.solve_constraint_model(request)
+
+# Identical problem - returns cached solution
+response2 = await solver.solve_constraint_model(request)  # Cache hit!
+```
+
+Cache uses LRU eviction (max 1000 entries) with 1-hour TTL. Access global cache stats:
+
+```python
+from chuk_mcp_solver.cache import get_global_cache
+
+cache = get_global_cache()
+stats = cache.stats()
+# {'size': 42, 'max_size': 1000, 'hits': 15, 'misses': 27, 'hit_rate_pct': 35.71, 'ttl_seconds': 3600}
+```
+
+**Partial Solutions on Timeout:**
+
+When solving complex problems with time limits, enable `return_partial_solution` to get the best solution found so far:
+
+```python
+{
+    "mode": "optimize",
+    "search": {
+        "max_time_ms": 1000,  # 1 second limit
+        "return_partial_solution": true
+    },
+    # ... variables, constraints, objective ...
+}
+```
+
+If timeout occurs, you'll get a `FEASIBLE` solution with a note explaining it's the best found so far.
+
+**Validation and Error Messages:**
+
+The solver validates models before solving and provides actionable error messages to help LLMs self-correct:
+
+```python
+# Invalid model with typo
+response = await solver.solve_constraint_model({
+    "mode": "optimize",
+    "variables": [{"id": "x", "domain": {"type": "integer", "lower": 0, "upper": 10}}],
+    "constraints": [{
+        "id": "c1",
+        "kind": "linear",
+        "params": {
+            "terms": [{"var": "y", "coef": 1}],  # Typo: 'y' instead of 'x'
+            "sense": "<=",
+            "rhs": 5
+        }
+    }],
+    "objective": {"sense": "max", "terms": [{"var": "x", "coef": 1}]}
+})
+
+# Response includes helpful error:
+# status: ERROR
+# explanation: "Model validation failed with 1 error(s):
+#   1. Variable 'y' referenced in constraint 'c1' is not defined
+#      Location: constraint[c1].params.terms[0].var
+#      Suggestion: Did you mean 'x'? (defined variables: x)"
+```
+
+Validation checks:
+- Undefined variables (with "did you mean?" suggestions)
+- Duplicate IDs
+- Invalid domain bounds
+- Empty constraint sets
+- Objective without variables
+- Type mismatches
 
 **Response Schema:**
 
@@ -608,7 +742,7 @@ make test-cov
 # Run specific tests
 pytest tests/test_models.py -v
 
-# Current stats: 105 tests, 91% coverage ✅
+# Current stats: 170 tests, 93% coverage ✅
 ```
 
 ### Code Quality
@@ -646,22 +780,32 @@ chuk-mcp-solver/
 │   ├── server.py            # MCP server + tools
 │   ├── models.py            # Pydantic models + enums
 │   ├── config.py            # Configuration management
+│   ├── validation.py        # 🆕 Model validation (Phase 2)
+│   ├── cache.py             # 🆕 Solution caching (Phase 3)
+│   ├── observability.py     # 🆕 Logging & metrics (Phase 1)
+│   ├── diagnostics.py       # 🆕 Health checks & analysis (Phase 1)
 │   └── solver/              # Solver implementations
 │       ├── __init__.py      # Solver factory (get_solver)
 │       ├── provider.py      # Abstract solver interface
 │       └── ortools/         # OR-Tools implementation
 │           ├── solver.py    # Main ORToolsSolver class
 │           ├── constraints.py  # Constraint builders
-│           ├── objectives.py   # Objective builders
+│           ├── objectives.py   # Objective + search config
 │           └── responses.py    # Response builders
-├── tests/                   # Comprehensive test suite
+├── tests/                   # Comprehensive test suite (151+ tests)
 │   ├── test_solver.py       # Factory tests
+│   ├── test_models.py       # Model validation tests
+│   ├── test_validation.py   # 🆕 Validation framework tests
+│   ├── test_cache.py        # 🆕 Caching tests
+│   ├── test_performance.py  # 🆕 Performance feature tests
+│   ├── test_observability.py  # 🆕 Observability tests
+│   ├── test_diagnostics.py    # 🆕 Diagnostics tests
 │   └── solver/ortools/      # OR-Tools tests (mirrors source)
 │       ├── test_solver.py
 │       ├── test_constraints.py
 │       ├── test_responses.py
 │       └── test_edge_cases.py
-├── examples/                # Example scripts
+├── examples/                # Example scripts (11 examples)
 └── pyproject.toml           # Package configuration
 ```
 
@@ -717,26 +861,51 @@ chuk-mcp-solver/
 
 ## Roadmap
 
-### Completed ✅
+### Phase 1: Trust & Foundations ✅ (Completed)
+
+- [x] Structured observability and logging
+- [x] Health checks and diagnostics
+- [x] Problem hashing for deduplication
+- [x] Infeasibility diagnosis
+- [x] Deterministic solving (random seeds)
+- [x] Solution metadata tracking
+
+### Phase 2: Developer Experience ✅ (Completed)
+
+- [x] Pre-solve model validation
+- [x] Actionable error messages for LLMs
+- [x] Smart typo detection ("Did you mean...?")
+- [x] Three-level validation severity (ERROR, WARNING, INFO)
+- [x] Detailed validation suggestions
+
+### Phase 3: Power & Performance ✅ (Completed)
+
+- [x] Solution caching with LRU + TTL
+- [x] Partial solutions (best-so-far on timeout)
+- [x] Search strategy hints (first-fail, random, etc.)
+- [x] Cache statistics and hit rate tracking
+- [x] Warm-start solution hints
+
+### Phase 1-3 Foundation Features ✅
 
 - [x] Cumulative constraints (resource scheduling)
 - [x] Circuit constraints (routing/TSP)
 - [x] Reservoir constraints (inventory management)
 - [x] No-overlap constraints (disjunctive scheduling)
 - [x] Multi-objective optimization (priority-based)
-- [x] Warm-start from previous solutions
 - [x] Parallel search workers
 - [x] Search progress logging
 
-### Planned 🚧
+### Phase 4-7: Planned 🚧
 
 - [ ] Solution enumeration (find N diverse solutions)
-- [ ] Relaxation and feasibility analysis
+- [ ] Solution visualization (Gantt charts, graphs)
+- [ ] Enhanced debugging (conflict analysis)
 - [ ] Export to MPS/LP formats
-- [ ] Visualization of solutions and Gantt charts
 - [ ] Advanced search strategies (custom heuristics)
 - [ ] Symmetry breaking
 - [ ] Decomposition strategies
+- [ ] Documentation generation from models
 
 ## Contributing
 

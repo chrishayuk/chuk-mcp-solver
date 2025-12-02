@@ -5,7 +5,12 @@ This module handles objective function building and solver parameter configurati
 
 from ortools.sat.python import cp_model
 
-from chuk_mcp_solver.models import Objective, ObjectiveSense, SolveConstraintModelRequest
+from chuk_mcp_solver.models import (
+    Objective,
+    ObjectiveSense,
+    SearchStrategy,
+    SolveConstraintModelRequest,
+)
 
 
 def build_objective(
@@ -76,6 +81,19 @@ def configure_solver(solver: cp_model.CpSolver, request: SolveConstraintModelReq
     # Search progress logging
     if request.search.log_search_progress:
         solver.parameters.log_search_progress = True
+
+    # Random seed for deterministic solving
+    if request.search.random_seed is not None:
+        solver.parameters.random_seed = request.search.random_seed
+
+    # Search strategy
+    if request.search.strategy != SearchStrategy.AUTO:
+        # Map our strategy enum to OR-Tools parameters
+        if request.search.strategy == SearchStrategy.FIRST_FAIL:
+            solver.parameters.search_branching = cp_model.FIXED_SEARCH
+            solver.parameters.preferred_variable_order = cp_model.CHOOSE_FIRST
+        elif request.search.strategy == SearchStrategy.RANDOM:
+            solver.parameters.randomize_search = True
 
     # Note: Warm start solution hints are handled separately in solve_constraint_model
     # via solver.AddHint() after model construction

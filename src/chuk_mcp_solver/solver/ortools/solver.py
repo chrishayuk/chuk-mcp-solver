@@ -3,10 +3,10 @@
 Main solver class that orchestrates constraint solving using Google OR-Tools.
 """
 
-import logging
-
 from ortools.sat.python import cp_model
 
+from chuk_mcp_solver.cache import get_global_cache
+from chuk_mcp_solver.diagnostics import diagnose_infeasibility
 from chuk_mcp_solver.models import (
     Explanation,
     SolveConstraintModelRequest,
@@ -15,12 +15,12 @@ from chuk_mcp_solver.models import (
     SolverStatus,
     VariableDomainType,
 )
+from chuk_mcp_solver.observability import SolveOutcome, logger, track_solve
 from chuk_mcp_solver.solver.ortools.constraints import build_constraint
 from chuk_mcp_solver.solver.ortools.objectives import build_objective, configure_solver
 from chuk_mcp_solver.solver.ortools.responses import build_failure_response, build_success_response
 from chuk_mcp_solver.solver.provider import SolverProvider
-
-logger = logging.getLogger(__name__)
+from chuk_mcp_solver.validation import validate_model
 
 
 class ORToolsSolver(SolverProvider):
@@ -50,50 +50,146 @@ class ORToolsSolver(SolverProvider):
         Raises:
             ValueError: If the request is invalid or contains unsupported features.
         """
-        # Validate request
-        self._validate_request(request)
+        # Validate model first
+        validation_result = validate_model(request)
+        if not validation_result.is_valid:
+            # Format validation errors into explanation
+            error_summary = (
+                f"Model validation failed with {len(validation_result.errors)} error(s):\n"
+            )
+            for i, error in enumerate(validation_result.errors, 1):
+                error_summary += f"\n{i}. {error.message}"
+                error_summary += f"\n   Location: {error.location}"
+                error_summary += f"\n   Suggestion: {error.suggestion}\n"
 
-        try:
-            # Build CP-SAT model
-            model = cp_model.CpModel()
-            var_map = self._build_variables(model, request)
-            self._build_constraints(model, request, var_map)
-
-            # Set objective if optimizing
-            if request.mode == SolverMode.OPTIMIZE and request.objective:
-                build_objective(model, request.objective, var_map)
-
-            # Solve
-            solver = cp_model.CpSolver()
-            configure_solver(solver, request)
-
-            # Add warm-start solution hints if provided
-            if request.search and request.search.warm_start_solution:
-                for var_id, value in request.search.warm_start_solution.items():
-                    if var_id in var_map:
-                        model.AddHint(var_map[var_id], value)
-
-            status = solver.Solve(model)
-
-            # Convert status
-            solver_status = self._convert_status(status, request.mode)
-
-            # Build response
-            if solver_status in (
-                SolverStatus.OPTIMAL,
-                SolverStatus.FEASIBLE,
-                SolverStatus.SATISFIED,
-            ):
-                return build_success_response(solver_status, solver, var_map, request)
-            else:
-                return build_failure_response(solver_status)
-
-        except Exception as e:
-            logger.error(f"Error solving model: {e}")
             return SolveConstraintModelResponse(
                 status=SolverStatus.ERROR,
-                explanation=Explanation(summary=f"Solver error: {str(e)}"),
+                explanation=Explanation(summary=error_summary),
             )
+
+        # Validate request (legacy validation)
+        self._validate_request(request)
+
+        # Check cache if enabled
+        cache = get_global_cache()
+        if request.search and request.search.enable_solution_caching:
+            cached_response = cache.get(request)
+            if cached_response is not None:
+                logger.info("Returning cached solution")
+                return cached_response
+
+        # Generate problem ID for tracking
+        problem_id = f"{request.mode.value}_{len(request.variables)}v_{len(request.constraints)}c"
+
+        # Track solve operation with observability
+        with track_solve(
+            problem_id=problem_id,
+            num_variables=len(request.variables),
+            num_constraints=len(request.constraints),
+            mode=request.mode.value,
+        ) as tracker:
+            try:
+                # Build CP-SAT model
+                model = cp_model.CpModel()
+                var_map = self._build_variables(model, request)
+                self._build_constraints(model, request, var_map)
+
+                # Set objective if optimizing
+                if request.mode == SolverMode.OPTIMIZE and request.objective:
+                    build_objective(model, request.objective, var_map)
+
+                # Solve
+                solver = cp_model.CpSolver()
+                configure_solver(solver, request)
+
+                # Add warm-start solution hints if provided
+                if request.search and request.search.warm_start_solution:
+                    for var_id, value in request.search.warm_start_solution.items():
+                        if var_id in var_map:
+                            model.AddHint(var_map[var_id], value)
+
+                status = solver.Solve(model)
+
+                # Convert status
+                solver_status = self._convert_status(status, request.mode)
+
+                # Build response and track outcome
+                if solver_status in (
+                    SolverStatus.OPTIMAL,
+                    SolverStatus.FEASIBLE,
+                    SolverStatus.SATISFIED,
+                ):
+                    # Track successful solve
+                    outcome = SolveOutcome.SUCCESS
+                    objective_value = (
+                        solver.ObjectiveValue() if solver.ObjectiveValue() != 0 else None
+                    )
+                    tracker.set_outcome(
+                        outcome=outcome,
+                        objective_value=objective_value,
+                        num_solutions=1,
+                    )
+                    response = build_success_response(solver_status, solver, var_map, request)
+
+                    # Cache successful solution
+                    if request.search and request.search.enable_solution_caching:
+                        cache.put(request, response)
+
+                    return response
+                else:
+                    # Track failure and provide diagnosis
+                    if solver_status == SolverStatus.INFEASIBLE:
+                        tracker.set_outcome(outcome=SolveOutcome.INFEASIBLE)
+                        # Generate detailed infeasibility diagnosis
+                        diagnosis = diagnose_infeasibility(request)
+
+                        # Format diagnosis into summary
+                        summary_parts = [diagnosis.summary]
+                        if diagnosis.suggestions:
+                            summary_parts.append("\n\nSuggestions:")
+                            for suggestion in diagnosis.suggestions:
+                                summary_parts.append(f"- {suggestion}")
+
+                        return SolveConstraintModelResponse(
+                            status=solver_status,
+                            explanation=Explanation(summary="\n".join(summary_parts)),
+                        )
+                    elif solver_status == SolverStatus.TIMEOUT:
+                        tracker.set_outcome(outcome=SolveOutcome.TIMEOUT)
+
+                        # Return partial solution if requested and available
+                        if request.search and request.search.return_partial_solution:
+                            # Check if solver found any solution (even non-optimal)
+                            # Note: status can be FEASIBLE or UNKNOWN when timeout occurs
+                            if status in (cp_model.FEASIBLE, cp_model.OPTIMAL):
+                                # Return best solution found so far
+                                response = build_success_response(
+                                    SolverStatus.FEASIBLE, solver, var_map, request
+                                )
+                                # Add note about timeout
+                                if response.explanation:
+                                    response.explanation.summary += (
+                                        "\n\nNote: Solver timed out. "
+                                        "This is the best solution found so far."
+                                    )
+                                else:
+                                    response.explanation = Explanation(
+                                        summary="Solver timed out. "
+                                        "This is the best solution found so far."
+                                    )
+                                return response
+                    else:
+                        tracker.set_outcome(outcome=SolveOutcome.ERROR)
+
+                    return build_failure_response(solver_status)
+
+            except Exception as e:
+                logger.error(f"Error solving model: {e}", exc_info=True)
+                tracker.set_error(str(e))
+                return SolveConstraintModelResponse(
+                    status=SolverStatus.ERROR,
+                    explanation=Explanation(summary=f"Solver error: {str(e)}"),
+                )
 
     def _validate_request(self, request: SolveConstraintModelRequest) -> None:
         """Validate the solve request.

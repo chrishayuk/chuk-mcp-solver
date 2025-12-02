@@ -342,8 +342,10 @@ async def test_optimize_without_objective_fails():
 
     solver = ORToolsSolver()
 
-    with pytest.raises(ValueError, match="Objective required when mode is 'optimize'"):
-        await solver.solve_constraint_model(request)
+    # Now handled by validation framework, returns error response instead of raising
+    response = await solver.solve_constraint_model(request)
+    assert response.status == SolverStatus.ERROR
+    assert "objective" in response.explanation.summary.lower()
 
 
 # ============================================================================

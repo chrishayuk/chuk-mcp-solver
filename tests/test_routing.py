@@ -291,21 +291,26 @@ class TestRoutingEdgeCases:
         assert len(response.routes[0].sequence) == 2
         assert response.total_distance == 20  # A->B->A = 10 + 10
 
-    async def test_multi_vehicle_not_implemented(self):
-        """Test that multi-vehicle routing raises NotImplementedError."""
+    async def test_multi_vehicle_routing_works(self):
+        """Test that multi-vehicle routing is now implemented."""
         from chuk_mcp_solver.server import solve_routing_problem
 
-        with pytest.raises(NotImplementedError, match="Multi-vehicle routing not yet implemented"):
-            await solve_routing_problem(
-                locations=[
-                    {"id": "A", "coordinates": (0, 0)},
-                    {"id": "B", "coordinates": (10, 0)},
-                ],
-                vehicles=[
-                    {"id": "truck_1", "start_location": "A"},
-                    {"id": "truck_2", "start_location": "A"},
-                ],
-            )
+        response = await solve_routing_problem(
+            locations=[
+                {"id": "A", "coordinates": (0, 0), "demand": 0},
+                {"id": "B", "coordinates": (10, 0), "demand": 10},
+                {"id": "C", "coordinates": (0, 10), "demand": 10},
+            ],
+            vehicles=[
+                {"id": "truck_1", "start_location": "A", "capacity": 20},
+                {"id": "truck_2", "start_location": "A", "capacity": 20},
+            ],
+        )
+
+        # Should successfully solve with multiple vehicles
+        assert response.status in (SolverStatus.OPTIMAL, SolverStatus.FEASIBLE)
+        assert response.vehicles_used >= 1
+        assert len(response.routes) >= 1
 
     async def test_metadata_preserved(self):
         """Test that location metadata is preserved."""

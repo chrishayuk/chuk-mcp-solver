@@ -594,3 +594,257 @@ class SolveConstraintModelResponse(BaseModel):
         default=None,
         description="Optional human-readable explanation of the result",
     )
+
+
+# ============================================================================
+# High-Level Scheduling Models (Phase 4)
+# ============================================================================
+
+
+class Task(BaseModel):
+    """A task to be scheduled with duration, dependencies, and resource requirements."""
+
+    id: str = Field(
+        ...,
+        description="Unique task identifier",
+        min_length=1,
+    )
+    duration: int = Field(
+        ...,
+        description="Task duration in time units (hours, minutes, etc.)",
+        ge=0,
+    )
+    resources_required: dict[str, int] = Field(
+        default_factory=dict,
+        description="Resource requirements as {resource_id: amount}",
+    )
+    dependencies: list[str] = Field(
+        default_factory=list,
+        description="List of task IDs that must complete before this task starts",
+    )
+    earliest_start: int | None = Field(
+        default=None,
+        description="Optional earliest start time (release time)",
+        ge=0,
+    )
+    deadline: int | None = Field(
+        default=None,
+        description="Optional deadline (due date)",
+        ge=0,
+    )
+    priority: int = Field(
+        default=1,
+        description="Task priority (higher = more important)",
+        ge=1,
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Optional metadata for explanations",
+    )
+
+
+class Resource(BaseModel):
+    """A resource with capacity constraints."""
+
+    id: str = Field(
+        ...,
+        description="Unique resource identifier",
+        min_length=1,
+    )
+    capacity: int = Field(
+        ...,
+        description="Maximum units available at any time",
+        ge=0,
+    )
+    cost_per_unit: float = Field(
+        default=0.0,
+        description="Optional cost per unit-time for cost optimization",
+        ge=0.0,
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Optional metadata",
+    )
+
+
+class SchedulingObjective(str, Enum):
+    """Scheduling optimization objectives."""
+
+    MINIMIZE_MAKESPAN = "minimize_makespan"  # Finish ASAP
+    MINIMIZE_COST = "minimize_cost"  # Minimize resource costs
+    MINIMIZE_LATENESS = "minimize_lateness"  # Minimize deadline violations
+
+
+class SolveSchedulingProblemRequest(BaseModel):
+    """High-level scheduling problem definition.
+
+    Use this instead of solve_constraint_model when you have tasks with
+    durations, dependencies, and resource constraints. The solver will
+    automatically build the appropriate CP-SAT model.
+    """
+
+    tasks: list[Task] = Field(
+        ...,
+        description="List of tasks to schedule",
+        min_length=1,
+    )
+    resources: list[Resource] = Field(
+        default_factory=list,
+        description="Optional list of resources with capacity constraints",
+    )
+    objective: SchedulingObjective = Field(
+        default=SchedulingObjective.MINIMIZE_MAKESPAN,
+        description="Optimization objective",
+    )
+    max_makespan: int | None = Field(
+        default=None,
+        description="Optional hard deadline for project completion",
+        ge=1,
+    )
+    no_overlap_tasks: list[list[str]] = Field(
+        default_factory=list,
+        description="Optional groups of tasks that cannot run concurrently",
+    )
+    max_time_ms: int = Field(
+        default=60000,
+        description="Maximum solver time in milliseconds",
+        ge=1,
+    )
+    return_partial_solution: bool = Field(
+        default=True,
+        description="Return best solution found if timeout occurs",
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Optional metadata",
+    )
+
+
+class TaskAssignment(BaseModel):
+    """A scheduled task with timing information."""
+
+    task_id: str = Field(
+        ...,
+        description="Task identifier",
+    )
+    start_time: int = Field(
+        ...,
+        description="Task start time",
+        ge=0,
+    )
+    end_time: int = Field(
+        ...,
+        description="Task end time",
+        ge=0,
+    )
+    resources_used: dict[str, int] = Field(
+        default_factory=dict,
+        description="Resources allocated to this task",
+    )
+    on_critical_path: bool = Field(
+        default=False,
+        description="Whether this task is on the critical path",
+    )
+    slack: int = Field(
+        default=0,
+        description="Slack time (how much task can be delayed without affecting makespan)",
+        ge=0,
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Original task metadata",
+    )
+
+
+class ResourceUtilization(BaseModel):
+    """Resource usage over time."""
+
+    resource_id: str = Field(
+        ...,
+        description="Resource identifier",
+    )
+    peak_usage: int = Field(
+        ...,
+        description="Peak utilization",
+        ge=0,
+    )
+    avg_usage: float = Field(
+        ...,
+        description="Average utilization",
+        ge=0.0,
+    )
+    capacity: int = Field(
+        ...,
+        description="Resource capacity",
+        ge=0,
+    )
+    total_cost: float = Field(
+        default=0.0,
+        description="Total cost (if cost_per_unit defined)",
+        ge=0.0,
+    )
+
+
+class SchedulingExplanation(BaseModel):
+    """Human-readable explanation of the schedule."""
+
+    summary: str = Field(
+        ...,
+        description="High-level summary of the result",
+    )
+    bottlenecks: list[str] = Field(
+        default_factory=list,
+        description="Identified bottlenecks (e.g., 'Task Deploy limited by available GPUs')",
+    )
+    recommendations: list[str] = Field(
+        default_factory=list,
+        description="Suggestions for improvement",
+    )
+    binding_constraints: list[str] = Field(
+        default_factory=list,
+        description="Constraints that are tight/critical",
+    )
+
+
+class SolveSchedulingProblemResponse(BaseModel):
+    """Scheduling solution with domain-specific details."""
+
+    status: SolverStatus = Field(
+        ...,
+        description="Solution status",
+    )
+    makespan: int | None = Field(
+        default=None,
+        description="Project completion time (max end time of all tasks)",
+        ge=0,
+    )
+    total_cost: float | None = Field(
+        default=None,
+        description="Total resource cost if applicable",
+        ge=0.0,
+    )
+    schedule: list[TaskAssignment] = Field(
+        default_factory=list,
+        description="Scheduled tasks with timing",
+    )
+    resource_utilization: list[ResourceUtilization] = Field(
+        default_factory=list,
+        description="Resource usage summary",
+    )
+    critical_path: list[str] = Field(
+        default_factory=list,
+        description="Task IDs on the critical path",
+    )
+    solve_time_ms: int = Field(
+        default=0,
+        description="Actual solve time in milliseconds",
+        ge=0,
+    )
+    optimality_gap: float | None = Field(
+        default=None,
+        description="Optimality gap percentage",
+    )
+    explanation: SchedulingExplanation = Field(
+        ...,
+        description="Human-readable explanation",
+    )

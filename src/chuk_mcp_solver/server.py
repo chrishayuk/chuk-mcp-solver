@@ -8,8 +8,17 @@ import sys
 
 from chuk_mcp_server import ChukMCPServer, tool
 
-from chuk_mcp_solver.models import SolveConstraintModelRequest, SolveConstraintModelResponse
+from chuk_mcp_solver.models import (
+    SolveConstraintModelRequest,
+    SolveConstraintModelResponse,
+    SolveSchedulingProblemRequest,
+    SolveSchedulingProblemResponse,
+)
 from chuk_mcp_solver.providers import get_provider_for_tool
+from chuk_mcp_solver.solver.ortools.scheduling import (
+    convert_cpsat_to_scheduling_response,
+    convert_scheduling_to_cpsat,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +137,104 @@ async def solve_constraint_model(
     # Get provider and solve
     provider = get_provider_for_tool("solve_constraint_model")
     response = await provider.solve_constraint_model(request)
+
+    return response
+
+
+@tool  # type: ignore[arg-type]
+async def solve_scheduling_problem(
+    tasks: list[dict],
+    resources: list[dict] | None = None,
+    objective: str = "minimize_makespan",
+    max_time_ms: int = 60000,
+) -> SolveSchedulingProblemResponse:
+    """Solve a task scheduling problem with dependencies and resource constraints.
+
+    This is a high-level interface for scheduling problems. Use this instead of
+    solve_constraint_model when you have tasks with durations, dependencies,
+    and resource constraints. The solver automatically builds the appropriate
+    CP-SAT model.
+
+    Args:
+        tasks: List of tasks with:
+            - id (str): Unique task identifier
+            - duration (int): Task duration in time units
+            - resources_required (dict, optional): {resource_id: amount} dict
+            - dependencies (list, optional): List of task IDs that must complete first
+            - earliest_start (int, optional): Release time
+            - deadline (int, optional): Due date
+            - priority (int, optional): Task priority (default 1)
+        resources: Optional list of resources with:
+            - id (str): Resource identifier
+            - capacity (int): Maximum units available at any time
+            - cost_per_unit (float, optional): Cost per unit-time
+        objective: Optimization goal - 'minimize_makespan', 'minimize_cost', or 'minimize_lateness'
+        max_time_ms: Maximum solver time in milliseconds (default 60000)
+
+    Returns:
+        SolveSchedulingProblemResponse containing:
+            - status: Solution status
+            - makespan: Project completion time
+            - schedule: List of task assignments with start/end times
+            - resource_utilization: Resource usage summary
+            - critical_path: Task IDs on critical path
+            - solve_time_ms: Actual solve time
+            - optimality_gap: Gap from best bound
+            - explanation: Human-readable summary
+
+    Tips for LLMs:
+        - Extract task durations from natural language (e.g., "takes 2 hours" -> duration: 2)
+        - Parse dependencies carefully (e.g., "A before B" -> B depends on A)
+        - Default resource capacity to system constraints if not specified
+        - If user says "as fast as possible", use minimize_makespan
+        - Check for circular dependencies before solving
+        - If infeasible, check for conflicting deadlines or impossible dependencies
+
+    Example (simple project schedule):
+        ```python
+        response = await solve_scheduling_problem(
+            tasks=[
+                {"id": "build", "duration": 10, "dependencies": []},
+                {"id": "test", "duration": 5, "dependencies": ["build"]},
+                {"id": "deploy", "duration": 3, "dependencies": ["test"]}
+            ],
+            objective="minimize_makespan"
+        )
+        # Returns optimal schedule with makespan = 18
+        ```
+
+    Example (with resource constraints):
+        ```python
+        response = await solve_scheduling_problem(
+            tasks=[
+                {"id": "task_a", "duration": 5, "resources_required": {"cpu": 2}},
+                {"id": "task_b", "duration": 3, "resources_required": {"cpu": 3}},
+            ],
+            resources=[{"id": "cpu", "capacity": 4}],
+            objective="minimize_makespan"
+        )
+        # Returns schedule respecting CPU capacity
+        ```
+    """
+    # Construct request model
+    request_data = {
+        "tasks": tasks,
+        "resources": resources or [],
+        "objective": objective,
+        "max_time_ms": max_time_ms,
+    }
+
+    request = SolveSchedulingProblemRequest(**request_data)
+
+    # Convert to CP-SAT model
+    cpsat_request = convert_scheduling_to_cpsat(request)
+
+    # Solve using CP-SAT
+    provider = get_provider_for_tool("solve_constraint_model")
+    cpsat_response = await provider.solve_constraint_model(cpsat_request)
+
+    # Convert response back to scheduling domain
+    response = convert_cpsat_to_scheduling_response(cpsat_response, request)
 
     return response
 

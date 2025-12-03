@@ -112,17 +112,13 @@ async def demo_timeout_with_best_solution():
         print(
             f"\n⚠ Solver timed out after {response.solve_time_ms}ms but returned best solution found"
         )
-        print(
-            f"  Gap of {response.optimality_gap:.2f}% means solution could be improved further"
-        )
+        print(f"  Gap of {response.optimality_gap:.2f}% means solution could be improved further")
     elif response.status == SolverStatus.OPTIMAL:
         print(f"Objective Value: {response.objective_value:.0f}")
         print(f"Optimality Gap: {response.optimality_gap:.2f}%")
-        print(
-            f"\n✓ Problem solved optimally despite short timeout ({response.solve_time_ms}ms)"
-        )
+        print(f"\n✓ Problem solved optimally despite short timeout ({response.solve_time_ms}ms)")
     else:
-        print(f"\n✗ No solution found before timeout")
+        print("\n✗ No solution found before timeout")
 
     if response.explanation:
         print(f"\nExplanation: {response.explanation.summary}")
@@ -178,9 +174,7 @@ async def demo_timeout_no_solution():
     print(f"Solve Time: {response.solve_time_ms}ms")
 
     if response.status == SolverStatus.TIMEOUT_NO_SOLUTION:
-        print(
-            f"\n✗ Solver timed out after {response.solve_time_ms}ms without finding any solution"
-        )
+        print(f"\n✗ Solver timed out after {response.solve_time_ms}ms without finding any solution")
         print("  Recommendations:")
         print("    • Increase max_time_ms")
         print("    • Simplify the problem")

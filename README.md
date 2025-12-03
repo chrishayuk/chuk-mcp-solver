@@ -3,7 +3,7 @@
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-compatible-brightgreen.svg)](https://modelcontextprotocol.io)
-[![Tests](https://img.shields.io/badge/tests-170%20passed-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-196%20passed-success.svg)](tests/)
 [![Coverage](https://img.shields.io/badge/coverage-93%25-brightgreen.svg)](tests/)
 
 🔧 **General-purpose constraint and optimization solver as an MCP server**
@@ -61,10 +61,16 @@ A powerful Model Context Protocol (MCP) server that provides constraint satisfac
 - Cache hit rate tracking
 
 ✅ **Production Quality**
-- 170 comprehensive tests (all passing)
+- 196 comprehensive tests (all passing)
 - 93% test coverage
 - Type-safe with mypy
 - Extensive error handling
+
+🎯 **High-Level Problem APIs** (Phase 4: LLM-Native Schemas) 🆕
+- Simple scheduling interface (tasks, resources, dependencies)
+- Automatically builds CP-SAT models from high-level specs
+- Domain-specific validation and error messages
+- Rich scheduling responses with critical path and utilization
 
 ## Example Use Cases
 
@@ -305,7 +311,26 @@ for var in response.solutions[0].variables:
 
 ## Examples
 
-The `examples/` directory contains 12 complete examples demonstrating different constraint types and use cases:
+The `examples/` directory contains 13 complete examples demonstrating different constraint types and use cases:
+
+### High-Level Problem APIs
+
+**Scheduling Demo** (`scheduling_demo.py`) 🆕
+- **API**: `solve_scheduling_problem` - High-level scheduling interface
+- **Use Case**: Project scheduling, resource allocation, DevOps pipelines
+- **Features**: Tasks with dependencies, resource constraints, deadlines, release times
+
+```bash
+python examples/scheduling_demo.py
+```
+
+Shows 6 scheduling scenarios:
+1. Simple sequential project (build → test → deploy)
+2. Parallel task execution
+3. Resource-constrained scheduling with capacity limits
+4. Deadlines and earliest start times
+5. Infeasible problem detection
+6. Complex DevOps pipeline with mixed constraints
 
 ### Performance & Features
 
@@ -773,6 +798,143 @@ Validation checks:
 - `optimality_gap`: Percentage gap from best bound (0.0 for optimal solutions)
 - `solve_time_ms`: Actual wall-clock time spent solving
 
+### `solve_scheduling_problem`
+
+🆕 **High-Level Scheduling API** - A simpler interface for task scheduling problems that automatically builds the CP-SAT model for you.
+
+Use this instead of `solve_constraint_model` when you have tasks with durations, dependencies, and resource constraints. Perfect for project planning, job scheduling, and resource allocation.
+
+**Parameters:**
+
+- `tasks` (list): Tasks to schedule, each with:
+  - `id` (str): Unique task identifier
+  - `duration` (int): Task duration in time units
+  - `resources_required` (dict, optional): `{resource_id: amount}` mapping
+  - `dependencies` (list, optional): Task IDs that must complete first
+  - `earliest_start` (int, optional): Release time (can't start before this)
+  - `deadline` (int, optional): Due date (must finish by this)
+  - `priority` (int, optional): Task priority (default 1)
+  - `metadata` (dict, optional): Custom metadata preserved in response
+
+- `resources` (list, optional): Resources with capacity limits:
+  - `id` (str): Resource identifier
+  - `capacity` (int): Maximum units available at any time
+  - `cost_per_unit` (float, optional): Cost per unit-time
+  - `metadata` (dict, optional): Custom metadata
+
+- `objective` (str): Optimization goal
+  - `"minimize_makespan"` (default): Minimize total project duration
+  - `"minimize_cost"`: Minimize total resource cost
+  - `"minimize_lateness"`: Minimize lateness/tardiness
+
+- `max_time_ms` (int, optional): Maximum solver time in milliseconds (default: 60000)
+
+**Response:**
+
+```python
+{
+    "status": "optimal" | "feasible" | "infeasible" | "timeout_best" | "timeout_no_solution" | "error",
+    "makespan": 42,  # Total project completion time
+    "total_cost": 123.45,  # Total cost (if minimize_cost)
+    "schedule": [
+        {
+            "task_id": "build",
+            "start_time": 0,
+            "end_time": 10,
+            "resources_used": {"cpu": 2},
+            "on_critical_path": true,
+            "slack": 0,
+            "metadata": {...}  # preserved from request
+        },
+        # ... more tasks
+    ],
+    "resource_utilization": [
+        {
+            "resource_id": "cpu",
+            "peak_usage": 4,
+            "average_usage": 2.5,
+            "utilization_pct": 62.5
+        }
+    ],
+    "critical_path": ["build", "test", "deploy"],
+    "solve_time_ms": 234,
+    "optimality_gap": 0.0,
+    "explanation": {
+        "summary": "Found optimal schedule completing in 42 time units with 10 tasks using 3 resources",
+        "recommendations": []  # suggestions if infeasible
+    }
+}
+```
+
+**Example: Simple Project Schedule**
+
+```python
+response = await solve_scheduling_problem(
+    tasks=[
+        {"id": "build", "duration": 10},
+        {"id": "test", "duration": 5, "dependencies": ["build"]},
+        {"id": "deploy", "duration": 3, "dependencies": ["test"]},
+    ],
+    objective="minimize_makespan"
+)
+# Returns: makespan=18, schedule with optimal timings
+```
+
+**Example: Resource-Constrained Scheduling**
+
+```python
+response = await solve_scheduling_problem(
+    tasks=[
+        {"id": "task_a", "duration": 5, "resources_required": {"cpu": 2}},
+        {"id": "task_b", "duration": 3, "resources_required": {"cpu": 3}},
+        {"id": "task_c", "duration": 4, "resources_required": {"cpu": 1}},
+    ],
+    resources=[{"id": "cpu", "capacity": 4}],
+    objective="minimize_makespan"
+)
+# Automatically handles resource capacity constraints using cumulative constraints
+```
+
+**Example: Deadlines and Release Times**
+
+```python
+response = await solve_scheduling_problem(
+    tasks=[
+        {"id": "prep", "duration": 2, "earliest_start": 0},
+        {"id": "main", "duration": 6, "dependencies": ["prep"], "deadline": 10},
+        {"id": "review", "duration": 3, "dependencies": ["main"], "earliest_start": 8},
+    ],
+    objective="minimize_makespan"
+)
+# Handles time windows and deadlines automatically
+```
+
+**When to Use This vs. solve_constraint_model:**
+
+✅ Use `solve_scheduling_problem` when:
+- You have tasks with durations and dependencies
+- You need to manage resource capacities
+- You want to minimize makespan/cost/lateness
+- You want a simpler, domain-specific API
+
+🔧 Use `solve_constraint_model` when:
+- You need custom constraints beyond scheduling
+- You're solving non-scheduling problems (puzzles, knapsack, etc.)
+- You need fine-grained control over the model
+- You're combining scheduling with other constraint types
+
+**Behind the Scenes:**
+
+This tool automatically converts your high-level scheduling problem into a CP-SAT model with:
+- Start/end time variables for each task
+- Duration constraints: `end = start + duration`
+- Precedence constraints for dependencies
+- Cumulative constraints for resource capacity
+- Deadline constraints
+- Makespan variable and objective
+
+See [`scheduling_demo.py`](examples/scheduling_demo.py) for comprehensive examples.
+
 ## Configuration
 
 ### Environment Variables
@@ -824,7 +986,7 @@ make test-cov
 # Run specific tests
 pytest tests/test_models.py -v
 
-# Current stats: 170 tests, 93% coverage ✅
+# Current stats: 196 tests, 93% coverage ✅
 ```
 
 ### Code Quality
@@ -873,8 +1035,9 @@ chuk-mcp-solver/
 │           ├── solver.py    # Main ORToolsSolver class
 │           ├── constraints.py  # Constraint builders
 │           ├── objectives.py   # Objective + search config
-│           └── responses.py    # Response builders
-├── tests/                   # Comprehensive test suite (151+ tests)
+│           ├── responses.py    # Response builders
+│           └── scheduling.py   # 🆕 High-level scheduling converters (Phase 4)
+├── tests/                   # Comprehensive test suite (196 tests)
 │   ├── test_solver.py       # Factory tests
 │   ├── test_models.py       # Model validation tests
 │   ├── test_validation.py   # 🆕 Validation framework tests
@@ -882,12 +1045,13 @@ chuk-mcp-solver/
 │   ├── test_performance.py  # 🆕 Performance feature tests
 │   ├── test_observability.py  # 🆕 Observability tests
 │   ├── test_diagnostics.py    # 🆕 Diagnostics tests
+│   ├── test_scheduling.py   # 🆕 High-level scheduling tests (Phase 4)
 │   └── solver/ortools/      # OR-Tools tests (mirrors source)
 │       ├── test_solver.py
 │       ├── test_constraints.py
 │       ├── test_responses.py
 │       └── test_edge_cases.py
-├── examples/                # Example scripts (11 examples)
+├── examples/                # Example scripts (13 examples)
 └── pyproject.toml           # Package configuration
 ```
 
@@ -978,7 +1142,19 @@ chuk-mcp-solver/
 - [x] Parallel search workers
 - [x] Search progress logging
 
-### Phase 4-7: Planned 🚧
+### Phase 4: LLM-Native Problem Schemas 🚧 (In Progress)
+
+- [x] High-level scheduling API (`solve_scheduling_problem`)
+- [x] Task model with dependencies, resources, deadlines
+- [x] Resource model with capacity constraints
+- [x] Automatic CP-SAT model generation from high-level specs
+- [x] Rich scheduling responses (makespan, critical path, utilization)
+- [x] Scheduling examples and documentation
+- [ ] High-level routing API (TSP/VRP)
+- [ ] High-level budget allocation API
+- [ ] High-level assignment API
+
+### Phase 5-7: Planned 🔮
 
 - [ ] Solution enumeration (find N diverse solutions)
 - [ ] Solution visualization (Gantt charts, graphs)

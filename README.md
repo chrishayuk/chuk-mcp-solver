@@ -3,7 +3,7 @@
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-compatible-brightgreen.svg)](https://modelcontextprotocol.io)
-[![Tests](https://img.shields.io/badge/tests-196%20passed-success.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-238%20passed-success.svg)](tests/)
 [![Coverage](https://img.shields.io/badge/coverage-93%25-brightgreen.svg)](tests/)
 
 🔧 **General-purpose constraint and optimization solver as an MCP server**
@@ -61,18 +61,49 @@ A powerful Model Context Protocol (MCP) server that provides constraint satisfac
 - Cache hit rate tracking
 
 ✅ **Production Quality**
-- 196 comprehensive tests (all passing)
+- 238 comprehensive tests (all passing)
 - 93% test coverage
 - Type-safe with mypy
 - Extensive error handling
 
 🎯 **High-Level Problem APIs** (Phase 4: LLM-Native Schemas) 🆕
-- Simple scheduling interface (tasks, resources, dependencies)
+- **Scheduling**: Tasks with dependencies, resources, deadlines → optimal project schedules
+- **Routing**: TSP/VRP with locations and vehicles → optimal delivery routes
+- **Budget Allocation**: Items with costs, values, dependencies → optimal portfolio selection
+- **Assignment**: Tasks with skills to agents with capacity → optimal task-agent matching
 - Automatically builds CP-SAT models from high-level specs
 - Domain-specific validation and error messages
-- Rich scheduling responses with critical path and utilization
+- Rich responses with critical paths, utilization, route sequences, resource usage, assignments
 
 ## Example Use Cases
+
+### High-Level Problem APIs (🆕 Phase 4)
+
+**📅 Project Manager**: "Schedule 15 tasks with dependencies and resource constraints to finish ASAP"
+- High-level API: `solve_scheduling_problem(tasks, resources, objective="minimize_makespan")`
+- No need to understand CP-SAT variables or cumulative constraints
+- Returns: optimal schedule with start/end times, critical path, resource utilization
+- See: [`scheduling_demo.py`](examples/scheduling_demo.py)
+
+**🚚 Delivery Driver**: "Find the shortest route visiting 10 customers starting from the warehouse"
+- High-level API: `solve_routing_problem(locations, objective="minimize_distance")`
+- No need to understand circuit constraints or Hamiltonian tours
+- Returns: optimal route sequence, total distance, time with service times
+- See: [`routing_demo.py`](examples/routing_demo.py)
+
+**💰 Product Manager**: "Select projects to maximize ROI under $100k budget with dependencies and conflicts"
+- High-level API: `solve_budget_allocation(items, budgets, objective="maximize_value")`
+- No need to understand knapsack patterns or implication constraints
+- Returns: selected items, total cost/value, resource usage, slack analysis
+- See: [`allocation_demo.py`](examples/allocation_demo.py)
+
+**👥 Team Lead**: "Assign development tasks to engineers matching required skills and balancing workload"
+- High-level API: `solve_assignment_problem(agents, tasks, objective="balance_load")`
+- No need to understand binary assignment variables or capacity constraints
+- Returns: optimal assignments, agent workload, over/underutilized agents
+- See: [`assignment_demo.py`](examples/assignment_demo.py)
+
+### Low-Level Constraint Programming
 
 **🏗️ DevOps Team**: "Schedule 20 deployment tasks across 5 servers with CPU/memory limits while minimizing total deployment time"
 - Uses cumulative constraints to manage resource capacity
@@ -311,7 +342,7 @@ for var in response.solutions[0].variables:
 
 ## Examples
 
-The `examples/` directory contains 13 complete examples demonstrating different constraint types and use cases:
+The `examples/` directory contains 16 complete examples demonstrating different constraint types and use cases:
 
 ### High-Level Problem APIs
 
@@ -331,6 +362,59 @@ Shows 6 scheduling scenarios:
 4. Deadlines and earliest start times
 5. Infeasible problem detection
 6. Complex DevOps pipeline with mixed constraints
+
+**Routing Demo** (`routing_demo.py`) 🆕
+- **API**: `solve_routing_problem` - High-level TSP/VRP interface
+- **Use Case**: Delivery routing, traveling salesman, logistics optimization
+- **Features**: Coordinates or distance matrix, service times, vehicle costs
+
+```bash
+python examples/routing_demo.py
+```
+
+Shows 6 routing scenarios:
+1. Simple TSP with coordinates
+2. TSP with asymmetric distance matrix
+3. TSP with service times at locations
+4. TSP with cost optimization (fixed + variable)
+5. Real-world 7-location delivery route
+6. Small 3-city TSP with detailed breakdown
+
+**Budget Allocation Demo** (`allocation_demo.py`) 🆕
+- **API**: `solve_budget_allocation` - High-level knapsack/portfolio interface
+- **Use Case**: Project selection, feature prioritization, resource allocation
+- **Features**: Dependencies, conflicts, multi-resource constraints, min/max thresholds
+
+```bash
+python examples/allocation_demo.py
+```
+
+Shows 7 allocation scenarios:
+1. Simple knapsack problem (maximize value under budget)
+2. Portfolio selection with dependencies (backend required for frontend)
+3. Feature prioritization with conflicts (mobile vs web checkout)
+4. Multi-resource allocation (budget + headcount + time)
+5. Maximize item count (get as many as possible)
+6. Minimize cost while meeting value threshold
+7. Item count constraints (min/max selection limits)
+
+**Assignment Demo** (`assignment_demo.py`) 🆕
+- **API**: `solve_assignment_problem` - High-level task-agent assignment interface
+- **Use Case**: Work assignment, task delegation, resource matching
+- **Features**: Skill matching, capacity constraints, load balancing, cost optimization
+
+```bash
+python examples/assignment_demo.py
+```
+
+Shows 7 assignment scenarios:
+1. Simple assignment (minimize cost with different hourly rates)
+2. Skill matching (assign tasks requiring specific skills to qualified agents)
+3. Load balancing (distribute tasks evenly across agents)
+4. Capacity constraints (agents with limited task capacity)
+5. Maximize assignments (assign as many tasks as possible)
+6. Infeasible assignment (insufficient capacity)
+7. Custom cost matrix (task-agent preference matching)
 
 ### Performance & Features
 
@@ -934,6 +1018,451 @@ This tool automatically converts your high-level scheduling problem into a CP-SA
 - Makespan variable and objective
 
 See [`scheduling_demo.py`](examples/scheduling_demo.py) for comprehensive examples.
+
+### `solve_routing_problem`
+
+🆕 **High-Level Routing API** - A simpler interface for TSP and VRP problems that automatically builds the CP-SAT model for you.
+
+Use this instead of `solve_constraint_model` when you need to find optimal routes for vehicles visiting locations. Perfect for delivery routing, traveling salesman problems, and logistics optimization.
+
+**Parameters:**
+
+- `locations` (list): Locations to visit, each with:
+  - `id` (str): Unique location identifier
+  - `coordinates` (tuple, optional): (x, y) or (lat, lon) coordinates
+  - `service_time` (int, optional): Time spent at location (default 0)
+  - `time_window` (tuple, optional): (earliest, latest) arrival time
+  - `demand` (int, optional): Demand at location for capacity constraints
+  - `priority` (int, optional): Location priority (default 1)
+
+- `vehicles` (list, optional): Vehicles (if empty, assumes single vehicle TSP):
+  - `id` (str): Vehicle identifier
+  - `capacity` (int, optional): Maximum load (default 999999)
+  - `start_location` (str): Starting location ID
+  - `end_location` (str, optional): Ending location if different from start
+  - `max_distance` (int, optional): Maximum distance vehicle can travel
+  - `max_time` (int, optional): Maximum time vehicle can be in use
+  - `cost_per_distance` (float, optional): Cost per unit distance (default 1.0)
+  - `fixed_cost` (float, optional): Fixed cost if vehicle is used (default 0.0)
+
+- `distance_matrix` (list[list[int]], optional): Distance matrix where [i][j] = distance from location i to j. If not provided, uses Euclidean distance from coordinates.
+
+- `objective` (str): Optimization goal
+  - `"minimize_distance"` (default): Minimize total distance
+  - `"minimize_time"`: Minimize total time
+  - `"minimize_vehicles"`: Use fewest vehicles
+  - `"minimize_cost"`: Minimize total cost
+
+- `max_time_ms` (int, optional): Maximum solver time in milliseconds (default: 60000)
+
+**Response:**
+
+```python
+{
+    "status": "optimal" | "feasible" | "infeasible" | "timeout_best" | "timeout_no_solution" | "error",
+    "routes": [
+        {
+            "vehicle_id": "truck_1",
+            "sequence": ["depot", "customer_A", "customer_B", "depot"],
+            "total_distance": 45,
+            "total_time": 55,  # including service times
+            "total_cost": 112.50,
+            "load_timeline": []  # for capacity-constrained routing
+        }
+    ],
+    "unvisited": [],  # locations not visited (if force_visit_all=False)
+    "total_distance": 45,
+    "total_time": 55,
+    "total_cost": 112.50,
+    "vehicles_used": 1,
+    "solve_time_ms": 123,
+    "optimality_gap": 0.0,
+    "explanation": {
+        "summary": "Found optimal route visiting 4 locations with total distance 45",
+        "bottlenecks": [],
+        "recommendations": []
+    }
+}
+```
+
+**Example: Simple TSP with Coordinates**
+
+```python
+response = await solve_routing_problem(
+    locations=[
+        {"id": "warehouse", "coordinates": (0, 0)},
+        {"id": "customer_A", "coordinates": (10, 5)},
+        {"id": "customer_B", "coordinates": (5, 10)},
+        {"id": "customer_C", "coordinates": (15, 15)},
+    ],
+    objective="minimize_distance"
+)
+# Returns optimal tour visiting all locations
+```
+
+**Example: TSP with Distance Matrix**
+
+```python
+response = await solve_routing_problem(
+    locations=[
+        {"id": "A"},
+        {"id": "B"},
+        {"id": "C"},
+    ],
+    distance_matrix=[
+        [0, 10, 20],
+        [10, 0, 15],
+        [20, 15, 0],
+    ],
+    objective="minimize_distance"
+)
+# Uses provided distances instead of coordinates
+```
+
+**Example: Routing with Service Times and Costs**
+
+```python
+response = await solve_routing_problem(
+    locations=[
+        {"id": "depot", "coordinates": (0, 0), "service_time": 0},
+        {"id": "store_A", "coordinates": (10, 0), "service_time": 15},
+        {"id": "store_B", "coordinates": (10, 10), "service_time": 20},
+    ],
+    vehicles=[
+        {
+            "id": "van_1",
+            "start_location": "depot",
+            "cost_per_distance": 2.5,
+            "fixed_cost": 50.0
+        }
+    ],
+    objective="minimize_cost"
+)
+# Minimizes total cost (fixed + distance * cost_per_distance)
+```
+
+**When to Use This vs. solve_constraint_model:**
+
+✅ Use `solve_routing_problem` when:
+- You need to find optimal routes for visiting locations
+- You have TSP (Traveling Salesman Problem) scenarios
+- You want to optimize delivery routes
+- You want a simpler, domain-specific API
+
+🔧 Use `solve_constraint_model` when:
+- You need custom constraints beyond routing
+- You're solving non-routing problems
+- You need fine-grained control over the circuit constraint
+- You're combining routing with other constraint types
+
+**Behind the Scenes:**
+
+This tool automatically converts your high-level routing problem into a CP-SAT model with:
+- Boolean arc variables for each possible location-to-location connection
+- Circuit constraint ensuring valid Hamiltonian tour (visits each location exactly once)
+- Distance/time/cost objective function
+- Support for service times at locations
+- Vehicle cost modeling (fixed + per-distance)
+
+**Current Limitations:**
+
+- Single-vehicle TSP only (multi-vehicle VRP coming in Phase 4.1.2b)
+- No time window constraints yet
+- No capacity-constrained routing yet
+- No pickup and delivery yet
+
+See [`routing_demo.py`](examples/routing_demo.py) for comprehensive examples.
+
+---
+
+### `solve_budget_allocation` 🆕
+
+**High-level interface for budget allocation and knapsack problems.**
+
+Solves portfolio selection, feature prioritization, and resource allocation problems. Automatically handles dependencies, conflicts, and multiple resource constraints.
+
+**Parameters:**
+- `items` (list[dict]): Items to choose from, each with:
+  - `id` (str): Unique identifier
+  - `cost` (float): Cost of selecting this item
+  - `value` (float): Value/benefit (ROI, utility, priority)
+  - `resources_required` (dict, optional): Multi-resource requirements like `{"headcount": 2, "time": 3}`
+  - `dependencies` (list, optional): Item IDs that must also be selected
+  - `conflicts` (list, optional): Item IDs that cannot be selected together
+- `budgets` (list[dict]): Resource constraints, each with:
+  - `resource` (str): Resource name (e.g., "money", "time", "headcount")
+  - `limit` (float): Maximum available
+- `objective` (str): Goal - `"maximize_value"` (default), `"maximize_count"`, or `"minimize_cost"`
+- `min_value_threshold` (float, optional): Minimum total value required
+- `max_cost_threshold` (float, optional): Maximum total cost allowed
+- `min_items` (int, optional): Minimum number of items to select
+- `max_items` (int, optional): Maximum number of items to select
+- `max_time_ms` (int): Maximum solver time (default: 60000)
+
+**Response:**
+```json
+{
+  "status": "optimal",
+  "selected_items": ["project_A", "project_C"],
+  "total_cost": 9000.0,
+  "total_value": 21000.0,
+  "resource_usage": {"money": 9000.0},
+  "resource_slack": {"money": 1000.0},
+  "solve_time_ms": 5,
+  "optimality_gap": null,
+  "explanation": {
+    "summary": "Optimal selection: 2 items with total value 21000.00 under budget of 9000.00",
+    "binding_constraints": ["Budget 'money' has 1000.00 slack (10.0%)"],
+    "marginal_items": [],
+    "recommendations": []
+  }
+}
+```
+
+**Example 1: Simple Knapsack**
+```python
+response = await solve_budget_allocation(
+    items=[
+        {"id": "project_A", "cost": 5000, "value": 12000},
+        {"id": "project_B", "cost": 3000, "value": 7000},
+        {"id": "project_C", "cost": 4000, "value": 9000},
+    ],
+    budgets=[
+        {"resource": "money", "limit": 10000}
+    ],
+    objective="maximize_value"
+)
+# Returns: Optimal selection maximizing value under $10k budget
+```
+
+**Example 2: With Dependencies**
+```python
+response = await solve_budget_allocation(
+    items=[
+        {"id": "backend", "cost": 8000, "value": 5000},
+        {"id": "frontend", "cost": 6000, "value": 12000,
+         "dependencies": ["backend"]},  # Frontend requires backend
+        {"id": "mobile", "cost": 7000, "value": 10000,
+         "dependencies": ["backend"]},
+    ],
+    budgets=[{"resource": "money", "limit": 15000}],
+    objective="maximize_value"
+)
+# Automatically ensures dependencies are satisfied
+```
+
+**Example 3: With Conflicts**
+```python
+response = await solve_budget_allocation(
+    items=[
+        {"id": "mobile_checkout", "cost": 5000, "value": 15000,
+         "conflicts": ["web_redesign"]},  # Can't do both
+        {"id": "web_redesign", "cost": 6000, "value": 14000,
+         "conflicts": ["mobile_checkout"]},
+        {"id": "analytics", "cost": 3000, "value": 8000},
+    ],
+    budgets=[{"resource": "money", "limit": 12000}],
+    objective="maximize_value"
+)
+# Ensures conflicting items are not both selected
+```
+
+**Example 4: Multi-Resource**
+```python
+response = await solve_budget_allocation(
+    items=[
+        {"id": "feature_A", "cost": 5000, "value": 10000,
+         "resources_required": {"headcount": 2, "time": 3}},
+        {"id": "feature_B", "cost": 3000, "value": 7000,
+         "resources_required": {"headcount": 1, "time": 2}},
+    ],
+    budgets=[
+        {"resource": "money", "limit": 10000},
+        {"resource": "headcount", "limit": 3},
+        {"resource": "time", "limit": 4}
+    ],
+    objective="maximize_value"
+)
+# Respects all resource constraints simultaneously
+```
+
+**When to Use:**
+
+✅ Use `solve_budget_allocation` when:
+- You need to select items under budget constraints
+- You have knapsack or portfolio selection problems
+- You need to handle dependencies or conflicts between items
+- You have multiple resource constraints (budget, time, headcount)
+- You want to maximize value, minimize cost, or maximize count
+
+🔧 Use `solve_constraint_model` when:
+- You need custom constraints beyond allocation
+- You're solving non-allocation problems
+- You need fine-grained control over the knapsack formulation
+- You're combining allocation with other constraint types
+
+**Behind the Scenes:**
+
+This tool automatically converts your high-level allocation problem into a CP-SAT model with:
+- Binary selection variables for each item
+- Linear budget constraints for each resource
+- Implication constraints for dependencies (if A then B)
+- Linear constraints for conflicts (A + B ≤ 1)
+- Value/cost/count objective function
+- Optional min/max value, cost, and item count constraints
+
+**Current Limitations:**
+
+- No soft budget constraints (penalty-based) yet
+- No category-based selection rules yet
+- No multi-period allocation yet
+
+See [`allocation_demo.py`](examples/allocation_demo.py) for comprehensive examples.
+
+---
+
+### `solve_assignment_problem` 🆕
+
+**High-level task-to-agent assignment interface** - Automatically builds CP-SAT models for assigning tasks to agents with skill matching, capacity constraints, and load balancing.
+
+```python
+response = await solve_assignment_problem(
+    agents=[...],
+    tasks=[...],
+    objective="minimize_cost" | "maximize_assignments" | "balance_load",
+    cost_matrix=None,  # Optional: Custom cost matrix
+    force_assign_all=True,  # Require all tasks assigned
+    max_time_ms=60000,
+)
+```
+
+**Example 1: Simple Assignment (Minimize Cost)**
+
+```python
+response = await solve_assignment_problem(
+    agents=[
+        {"id": "alice", "capacity": 2, "cost_multiplier": 1.0},  # $50/hour
+        {"id": "bob", "capacity": 2, "cost_multiplier": 1.5},  # $75/hour
+    ],
+    tasks=[
+        {"id": "task_1", "duration": 2},  # 2 hours
+        {"id": "task_2", "duration": 3},  # 3 hours
+        {"id": "task_3", "duration": 1},  # 1 hour
+    ],
+    objective="minimize_cost",
+)
+# Assigns tasks to cheapest agents: alice gets task_1 + task_2, bob gets task_3
+# Total cost: $325 (alice: $100 + $150, bob: $75)
+```
+
+**Example 2: Skill Matching**
+
+```python
+response = await solve_assignment_problem(
+    agents=[
+        {"id": "alice", "capacity": 2, "skills": ["python", "docker", "aws"]},
+        {"id": "bob", "capacity": 2, "skills": ["react", "typescript", "nodejs"]},
+        {"id": "charlie", "capacity": 2, "skills": ["python", "react", "postgres"]},
+    ],
+    tasks=[
+        {"id": "backend_api", "duration": 5, "required_skills": ["python", "docker"]},
+        {"id": "frontend_ui", "duration": 4, "required_skills": ["react", "typescript"]},
+        {"id": "database_migration", "duration": 2, "required_skills": ["python", "postgres"]},
+        {"id": "deployment", "duration": 3, "required_skills": ["docker", "aws"]},
+    ],
+    objective="minimize_cost",
+)
+# Only assigns tasks to agents with matching skills
+# backend_api → alice, frontend_ui → bob, database_migration → charlie, deployment → alice
+```
+
+**Example 3: Load Balancing**
+
+```python
+response = await solve_assignment_problem(
+    agents=[
+        {"id": "server_1", "capacity": 5},
+        {"id": "server_2", "capacity": 5},
+        {"id": "server_3", "capacity": 5},
+    ],
+    tasks=[{"id": f"job_{i}", "duration": 1} for i in range(9)],
+    objective="balance_load",
+)
+# Distributes tasks evenly: each server gets exactly 3 tasks
+```
+
+**Example 4: Maximize Assignments (Optional Tasks)**
+
+```python
+response = await solve_assignment_problem(
+    agents=[
+        {"id": "team_member_1", "capacity": 2},
+        {"id": "team_member_2", "capacity": 2},
+    ],
+    tasks=[
+        {"id": "feature_a", "duration": 1},
+        {"id": "feature_b", "duration": 1},
+        {"id": "feature_c", "duration": 1},
+        {"id": "feature_d", "duration": 1},
+        {"id": "feature_e", "duration": 1},
+    ],
+    objective="maximize_assignments",
+    force_assign_all=False,  # Some tasks can remain unassigned
+)
+# Assigns 4 out of 5 tasks (capacity limit)
+# Returns unassigned_tasks: ["feature_c"]
+```
+
+**When to Use:**
+
+✅ Use `solve_assignment_problem` when:
+- You need to assign tasks to agents/workers/servers
+- You have skill or qualification requirements
+- You need to respect capacity or workload limits
+- You want to minimize cost, maximize assignments, or balance load
+- You have custom task-agent costs or preferences
+
+🔧 Use `solve_constraint_model` when:
+- You need custom constraints beyond assignment
+- You're solving non-assignment problems
+- You need fine-grained control over the assignment formulation
+- You're combining assignment with other constraint types
+
+**Behind the Scenes:**
+
+This tool automatically converts your high-level assignment problem into a CP-SAT model with:
+- Binary assignment variables for each (task, agent) pair
+- Task assignment constraints (each task to exactly one agent, or at most one if optional)
+- Agent capacity constraints (max number of tasks per agent)
+- Skill matching constraints (forbid incompatible assignments)
+- Cost minimization, assignment maximization, or load balancing objective
+- Automatic cost matrix generation from agent cost_multiplier and task duration
+
+**Response Fields:**
+
+```python
+response.status  # SolverStatus.OPTIMAL, FEASIBLE, INFEASIBLE, etc.
+response.assignments  # List[Assignment(task_id, agent_id, cost)]
+response.unassigned_tasks  # List[str] - Tasks not assigned (if force_assign_all=False)
+response.agent_load  # Dict[str, int] - Number of tasks per agent
+response.total_cost  # float - Total assignment cost
+response.solve_time_ms  # int - Solve time in milliseconds
+response.optimality_gap  # Optional[float] - Gap to optimal (if timeout)
+response.explanation  # AssignmentExplanation with summary and recommendations
+response.explanation.overloaded_agents  # List[str] - Agents with >150% of average load
+response.explanation.underutilized_agents  # List[str] - Agents with <50% of average load
+```
+
+**Current Limitations:**
+
+- No multi-skill level support (e.g., junior vs senior) yet
+- No task priority or preemption yet
+- No time windows or deadlines yet
+- No agent preferences or task affinity yet
+
+See [`assignment_demo.py`](examples/assignment_demo.py) for comprehensive examples.
+
+---
 
 ## Configuration
 

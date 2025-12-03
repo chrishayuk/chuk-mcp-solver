@@ -848,3 +848,621 @@ class SolveSchedulingProblemResponse(BaseModel):
         ...,
         description="Human-readable explanation",
     )
+
+
+# ============================================================================
+# Routing Models (Phase 4.1.2)
+# ============================================================================
+
+
+class Location(BaseModel):
+    """A location to visit in a routing problem."""
+
+    id: str = Field(
+        ...,
+        description="Unique location identifier",
+        min_length=1,
+    )
+    coordinates: tuple[float, float] | None = Field(
+        default=None,
+        description="Optional (latitude, longitude) or (x, y) coordinates",
+    )
+    service_time: int = Field(
+        default=0,
+        description="Time spent servicing this location",
+        ge=0,
+    )
+    time_window: tuple[int, int] | None = Field(
+        default=None,
+        description="Optional (earliest, latest) arrival time window",
+    )
+    demand: int = Field(
+        default=0,
+        description="Demand at this location (for capacity-constrained routing)",
+        ge=0,
+    )
+    priority: int = Field(
+        default=1,
+        description="Location priority (higher = more important)",
+        ge=0,
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Optional metadata",
+    )
+
+
+class Vehicle(BaseModel):
+    """A vehicle for routing problems."""
+
+    id: str = Field(
+        ...,
+        description="Unique vehicle identifier",
+        min_length=1,
+    )
+    capacity: int = Field(
+        default=999999,
+        description="Maximum load capacity",
+        ge=0,
+    )
+    start_location: str = Field(
+        ...,
+        description="Starting location ID",
+        min_length=1,
+    )
+    end_location: str | None = Field(
+        default=None,
+        description="Ending location ID (if different from start for open tours)",
+    )
+    max_distance: int | None = Field(
+        default=None,
+        description="Maximum distance this vehicle can travel",
+        ge=0,
+    )
+    max_time: int | None = Field(
+        default=None,
+        description="Maximum time this vehicle can be in use",
+        ge=0,
+    )
+    cost_per_distance: float = Field(
+        default=1.0,
+        description="Cost per unit distance",
+        ge=0.0,
+    )
+    fixed_cost: float = Field(
+        default=0.0,
+        description="Fixed cost if vehicle is used",
+        ge=0.0,
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Optional metadata",
+    )
+
+
+class RoutingObjective(str, Enum):
+    """Routing optimization objectives."""
+
+    MINIMIZE_DISTANCE = "minimize_distance"  # Minimize total distance
+    MINIMIZE_TIME = "minimize_time"  # Minimize total time
+    MINIMIZE_VEHICLES = "minimize_vehicles"  # Use fewest vehicles
+    MINIMIZE_COST = "minimize_cost"  # Minimize total cost
+
+
+class SolveRoutingProblemRequest(BaseModel):
+    """High-level routing problem definition.
+
+    Use this for TSP (Traveling Salesman Problem), VRP (Vehicle Routing Problem),
+    and delivery route optimization. The solver will automatically build the
+    appropriate CP-SAT model using circuit constraints.
+    """
+
+    locations: list[Location] = Field(
+        ...,
+        description="List of locations to visit",
+        min_length=2,
+    )
+    vehicles: list[Vehicle] = Field(
+        default_factory=list,
+        description="List of vehicles (if empty, assumes single vehicle TSP)",
+    )
+    distance_matrix: list[list[int]] | None = Field(
+        default=None,
+        description="Distance matrix where [i][j] = distance from location i to j. If not provided, uses Euclidean distance from coordinates.",
+    )
+    objective: RoutingObjective = Field(
+        default=RoutingObjective.MINIMIZE_DISTANCE,
+        description="Optimization objective",
+    )
+    force_visit_all: bool = Field(
+        default=True,
+        description="If True, all locations must be visited. If False, some can be skipped.",
+    )
+    max_route_distance: int | None = Field(
+        default=None,
+        description="Optional maximum distance for any single route",
+        ge=0,
+    )
+    max_time_ms: int = Field(
+        default=60000,
+        description="Maximum solver time in milliseconds",
+        ge=1,
+    )
+    return_partial_solution: bool = Field(
+        default=True,
+        description="Return best solution found if timeout occurs",
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Optional metadata",
+    )
+
+
+class Route(BaseModel):
+    """A vehicle route through locations."""
+
+    vehicle_id: str = Field(
+        ...,
+        description="Vehicle identifier",
+    )
+    sequence: list[str] = Field(
+        ...,
+        description="Location IDs in visit order",
+    )
+    total_distance: int = Field(
+        ...,
+        description="Total route distance",
+        ge=0,
+    )
+    total_time: int = Field(
+        ...,
+        description="Total route time including service times",
+        ge=0,
+    )
+    total_cost: float = Field(
+        ...,
+        description="Total route cost",
+        ge=0.0,
+    )
+    load_timeline: list[tuple[str, int]] = Field(
+        default_factory=list,
+        description="Load after visiting each location: [(location_id, load), ...]",
+    )
+
+
+class RoutingExplanation(BaseModel):
+    """Human-readable explanation of the routing solution."""
+
+    summary: str = Field(
+        ...,
+        description="High-level summary of the result",
+    )
+    bottlenecks: list[str] = Field(
+        default_factory=list,
+        description="Identified bottlenecks (e.g., 'Vehicle capacity constraint forces 2 trips')",
+    )
+    recommendations: list[str] = Field(
+        default_factory=list,
+        description="Suggestions for improvement",
+    )
+
+
+class SolveRoutingProblemResponse(BaseModel):
+    """Routing solution with domain-specific details."""
+
+    status: SolverStatus = Field(
+        ...,
+        description="Solution status",
+    )
+    routes: list[Route] = Field(
+        default_factory=list,
+        description="Vehicle routes",
+    )
+    unvisited: list[str] = Field(
+        default_factory=list,
+        description="Location IDs not visited (if force_visit_all=False)",
+    )
+    total_distance: int = Field(
+        default=0,
+        description="Total distance across all routes",
+        ge=0,
+    )
+    total_time: int = Field(
+        default=0,
+        description="Total time across all routes",
+        ge=0,
+    )
+    total_cost: float = Field(
+        default=0.0,
+        description="Total cost across all routes",
+        ge=0.0,
+    )
+    vehicles_used: int = Field(
+        default=0,
+        description="Number of vehicles actually used",
+        ge=0,
+    )
+    solve_time_ms: int = Field(
+        default=0,
+        description="Actual solve time in milliseconds",
+        ge=0,
+    )
+    optimality_gap: float | None = Field(
+        default=None,
+        description="Optimality gap percentage",
+    )
+    explanation: RoutingExplanation = Field(
+        ...,
+        description="Human-readable explanation",
+    )
+
+
+# ============================================================================
+# Budget Allocation Models (Phase 4.1.3)
+# ============================================================================
+
+
+class Item(BaseModel):
+    """An item to potentially select in budget allocation."""
+
+    id: str = Field(
+        ...,
+        description="Unique item identifier",
+    )
+    cost: float = Field(
+        ...,
+        description="Cost of selecting this item",
+        ge=0.0,
+    )
+    value: float = Field(
+        ...,
+        description="Value/benefit of selecting this item (ROI, utility, priority score)",
+        ge=0.0,
+    )
+    resources_required: dict[str, float] = Field(
+        default_factory=dict,
+        description="Additional resources required (e.g., {'headcount': 2.5, 'servers': 1})",
+    )
+    dependencies: list[str] = Field(
+        default_factory=list,
+        description="Item IDs that must also be selected if this item is selected",
+    )
+    conflicts: list[str] = Field(
+        default_factory=list,
+        description="Item IDs that cannot be selected together with this item",
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional context for explanations",
+    )
+
+
+class BudgetConstraint(BaseModel):
+    """A budget or resource limit."""
+
+    resource: str = Field(
+        ...,
+        description="Resource name (e.g., 'money', 'time', 'headcount')",
+    )
+    limit: float = Field(
+        ...,
+        description="Maximum amount available",
+        ge=0.0,
+    )
+    penalty_per_unit_over: float = Field(
+        default=0.0,
+        description="Penalty for exceeding limit (0 = hard constraint)",
+        ge=0.0,
+    )
+
+
+class AllocationObjective(str, Enum):
+    """Budget allocation optimization objectives."""
+
+    MAXIMIZE_VALUE = "maximize_value"
+    MAXIMIZE_COUNT = "maximize_count"  # Select as many items as possible
+    MINIMIZE_COST = "minimize_cost"  # While meeting value threshold
+
+
+class SolveBudgetAllocationRequest(BaseModel):
+    """High-level budget allocation / knapsack problem definition."""
+
+    items: list[Item] = Field(
+        ...,
+        min_length=1,
+        description="Items to choose from",
+    )
+    budgets: list[BudgetConstraint] = Field(
+        ...,
+        min_length=1,
+        description="Budget and resource constraints",
+    )
+    objective: AllocationObjective = Field(
+        default=AllocationObjective.MAXIMIZE_VALUE,
+        description="Optimization goal",
+    )
+    min_value_threshold: float | None = Field(
+        default=None,
+        description="Minimum total value required (optional constraint)",
+        ge=0.0,
+    )
+    max_cost_threshold: float | None = Field(
+        default=None,
+        description="Maximum total cost allowed (optional constraint)",
+        ge=0.0,
+    )
+    min_items: int | None = Field(
+        default=None,
+        description="Minimum number of items to select",
+        ge=0,
+    )
+    max_items: int | None = Field(
+        default=None,
+        description="Maximum number of items to select",
+        ge=0,
+    )
+    max_time_ms: int = Field(
+        default=60000,
+        description="Maximum solver time in milliseconds",
+        ge=1,
+    )
+    return_partial_solution: bool = Field(
+        default=True,
+        description="Return best solution found if timeout occurs",
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional context",
+    )
+
+
+class AllocationExplanation(BaseModel):
+    """Human-readable explanation of the allocation solution."""
+
+    summary: str = Field(
+        ...,
+        description="High-level summary of the result",
+    )
+    binding_constraints: list[str] = Field(
+        default_factory=list,
+        description="Constraints that are fully utilized",
+    )
+    marginal_items: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Items almost selected but excluded",
+    )
+    recommendations: list[str] = Field(
+        default_factory=list,
+        description="Suggestions for improvement",
+    )
+
+
+class SolveBudgetAllocationResponse(BaseModel):
+    """Budget allocation solution with domain-specific details."""
+
+    status: SolverStatus = Field(
+        ...,
+        description="Solution status",
+    )
+    selected_items: list[str] = Field(
+        default_factory=list,
+        description="IDs of selected items",
+    )
+    total_cost: float = Field(
+        default=0.0,
+        description="Total cost of selected items",
+        ge=0.0,
+    )
+    total_value: float = Field(
+        default=0.0,
+        description="Total value of selected items",
+        ge=0.0,
+    )
+    resource_usage: dict[str, float] = Field(
+        default_factory=dict,
+        description="Resource consumption by resource name",
+    )
+    resource_slack: dict[str, float] = Field(
+        default_factory=dict,
+        description="Unused capacity by resource name",
+    )
+    solve_time_ms: int = Field(
+        default=0,
+        description="Actual solve time in milliseconds",
+        ge=0,
+    )
+    optimality_gap: float | None = Field(
+        default=None,
+        description="Optimality gap percentage",
+    )
+    explanation: AllocationExplanation = Field(
+        ...,
+        description="Human-readable explanation",
+    )
+
+
+# ============================================================================
+# Assignment Models (Phase 4.1.4)
+# ============================================================================
+
+
+class Agent(BaseModel):
+    """An agent that can be assigned tasks."""
+
+    id: str = Field(
+        ...,
+        description="Unique agent identifier",
+    )
+    capacity: int = Field(
+        default=1,
+        description="Maximum number of tasks this agent can handle",
+        ge=0,
+    )
+    skills: list[str] = Field(
+        default_factory=list,
+        description="Skills this agent possesses",
+    )
+    cost_multiplier: float = Field(
+        default=1.0,
+        description="Cost multiplier for this agent",
+        ge=0.0,
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional context for explanations",
+    )
+
+
+class AssignmentTask(BaseModel):
+    """A task to be assigned to an agent."""
+
+    id: str = Field(
+        ...,
+        description="Unique task identifier",
+    )
+    required_skills: list[str] = Field(
+        default_factory=list,
+        description="Skills required to perform this task",
+    )
+    duration: int = Field(
+        default=1,
+        description="Task duration or workload",
+        ge=0,
+    )
+    priority: int = Field(
+        default=1,
+        description="Task priority (higher = more important)",
+        ge=0,
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional context for explanations",
+    )
+
+
+class AssignmentObjective(str, Enum):
+    """Assignment optimization objectives."""
+
+    MINIMIZE_COST = "minimize_cost"
+    MAXIMIZE_ASSIGNMENTS = "maximize_assignments"  # Assign as many tasks as possible
+    BALANCE_LOAD = "balance_load"  # Distribute tasks evenly across agents
+
+
+class SolveAssignmentProblemRequest(BaseModel):
+    """High-level assignment problem definition."""
+
+    agents: list[Agent] = Field(
+        ...,
+        min_length=1,
+        description="Agents available to perform tasks",
+    )
+    tasks: list[AssignmentTask] = Field(
+        ...,
+        min_length=1,
+        description="Tasks to be assigned",
+    )
+    cost_matrix: list[list[float]] | None = Field(
+        default=None,
+        description="Cost matrix where [i][j] = cost to assign task i to agent j. "
+        "If not provided, uses agent.cost_multiplier * task.duration",
+    )
+    objective: AssignmentObjective = Field(
+        default=AssignmentObjective.MINIMIZE_COST,
+        description="Optimization goal",
+    )
+    force_assign_all: bool = Field(
+        default=True,
+        description="If True, all tasks must be assigned (problem is infeasible if not possible). "
+        "If False, some tasks can remain unassigned.",
+    )
+    max_time_ms: int = Field(
+        default=60000,
+        description="Maximum solver time in milliseconds",
+        ge=1,
+    )
+    return_partial_solution: bool = Field(
+        default=True,
+        description="Return best solution found if timeout occurs",
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional context",
+    )
+
+
+class Assignment(BaseModel):
+    """A task assigned to an agent."""
+
+    task_id: str = Field(
+        ...,
+        description="ID of the assigned task",
+    )
+    agent_id: str = Field(
+        ...,
+        description="ID of the agent assigned to the task",
+    )
+    cost: float = Field(
+        ...,
+        description="Cost of this assignment",
+        ge=0.0,
+    )
+
+
+class AssignmentExplanation(BaseModel):
+    """Human-readable explanation of the assignment solution."""
+
+    summary: str = Field(
+        ...,
+        description="High-level summary of the result",
+    )
+    overloaded_agents: list[str] = Field(
+        default_factory=list,
+        description="Agents assigned more tasks than typical",
+    )
+    underutilized_agents: list[str] = Field(
+        default_factory=list,
+        description="Agents with capacity but few/no assignments",
+    )
+    recommendations: list[str] = Field(
+        default_factory=list,
+        description="Suggestions for improvement",
+    )
+
+
+class SolveAssignmentProblemResponse(BaseModel):
+    """Assignment solution with domain-specific details."""
+
+    status: SolverStatus = Field(
+        ...,
+        description="Solution status",
+    )
+    assignments: list[Assignment] = Field(
+        default_factory=list,
+        description="Task-to-agent assignments",
+    )
+    unassigned_tasks: list[str] = Field(
+        default_factory=list,
+        description="Tasks that could not be assigned",
+    )
+    agent_load: dict[str, int] = Field(
+        default_factory=dict,
+        description="Number of tasks assigned to each agent",
+    )
+    total_cost: float = Field(
+        default=0.0,
+        description="Total cost of all assignments",
+        ge=0.0,
+    )
+    solve_time_ms: int = Field(
+        default=0,
+        description="Actual solve time in milliseconds",
+        ge=0,
+    )
+    optimality_gap: float | None = Field(
+        default=None,
+        description="Optimality gap percentage",
+    )
+    explanation: AssignmentExplanation = Field(
+        ...,
+        description="Human-readable explanation",
+    )

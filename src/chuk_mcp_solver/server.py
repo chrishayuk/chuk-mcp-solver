@@ -9,12 +9,30 @@ import sys
 from chuk_mcp_server import ChukMCPServer, tool
 
 from chuk_mcp_solver.models import (
+    SolveAssignmentProblemRequest,
+    SolveAssignmentProblemResponse,
+    SolveBudgetAllocationRequest,
+    SolveBudgetAllocationResponse,
     SolveConstraintModelRequest,
     SolveConstraintModelResponse,
+    SolveRoutingProblemRequest,
+    SolveRoutingProblemResponse,
     SolveSchedulingProblemRequest,
     SolveSchedulingProblemResponse,
 )
 from chuk_mcp_solver.providers import get_provider_for_tool
+from chuk_mcp_solver.solver.ortools.allocation import (
+    convert_allocation_to_cpsat,
+    convert_cpsat_to_allocation_response,
+)
+from chuk_mcp_solver.solver.ortools.assignment import (
+    convert_assignment_to_cpsat,
+    convert_cpsat_to_assignment_response,
+)
+from chuk_mcp_solver.solver.ortools.routing import (
+    convert_cpsat_to_routing_response,
+    convert_routing_to_cpsat,
+)
 from chuk_mcp_solver.solver.ortools.scheduling import (
     convert_cpsat_to_scheduling_response,
     convert_scheduling_to_cpsat,
@@ -235,6 +253,377 @@ async def solve_scheduling_problem(
 
     # Convert response back to scheduling domain
     response = convert_cpsat_to_scheduling_response(cpsat_response, request)
+
+    return response
+
+
+@tool  # type: ignore[arg-type]
+async def solve_routing_problem(
+    locations: list[dict],
+    vehicles: list[dict] | None = None,
+    distance_matrix: list[list[int]] | None = None,
+    objective: str = "minimize_distance",
+    max_time_ms: int = 60000,
+) -> SolveRoutingProblemResponse:
+    """Solve a vehicle routing problem (TSP/VRP).
+
+    This is a high-level interface for routing problems like TSP (Traveling Salesman
+    Problem) and VRP (Vehicle Routing Problem). Use this instead of solve_constraint_model
+    when you need to find optimal routes for vehicles visiting locations.
+
+    Args:
+        locations: List of locations to visit, each with:
+            - id (str): Unique location identifier
+            - coordinates (tuple, optional): (x, y) or (lat, lon) coordinates
+            - service_time (int, optional): Time spent at location (default 0)
+            - time_window (tuple, optional): (earliest, latest) arrival time
+            - demand (int, optional): Demand at location for capacity constraints
+            - priority (int, optional): Location priority (default 1)
+        vehicles: Optional list of vehicles with:
+            - id (str): Vehicle identifier
+            - capacity (int, optional): Maximum load (default 999999)
+            - start_location (str): Starting location ID
+            - end_location (str, optional): Ending location if different from start
+            - max_distance (int, optional): Maximum distance vehicle can travel
+            - max_time (int, optional): Maximum time vehicle can be in use
+            - cost_per_distance (float, optional): Cost per unit distance (default 1.0)
+            - fixed_cost (float, optional): Fixed cost if vehicle is used (default 0.0)
+        distance_matrix: Optional distance matrix where [i][j] = distance from location i to j.
+                        If not provided, uses Euclidean distance from coordinates.
+        objective: Optimization goal - 'minimize_distance', 'minimize_time',
+                  'minimize_vehicles', or 'minimize_cost'
+        max_time_ms: Maximum solver time in milliseconds (default 60000)
+
+    Returns:
+        SolveRoutingProblemResponse containing:
+            - status: Solution status
+            - routes: List of vehicle routes with sequences
+            - total_distance: Total distance across all routes
+            - total_time: Total time including service times
+            - total_cost: Total cost
+            - vehicles_used: Number of vehicles actually used
+            - solve_time_ms: Actual solve time
+            - optimality_gap: Gap from best bound
+            - explanation: Human-readable summary
+
+    Tips for LLMs:
+        - For TSP: Provide locations without vehicles (assumes single vehicle)
+        - For VRP: Provide multiple vehicles with capacity constraints
+        - If you have coordinates, you don't need distance_matrix
+        - If you have distance_matrix, you don't need coordinates
+        - Service times add to total route time at each location
+        - Use minimize_distance for shortest tour
+        - Use minimize_cost for budget-aware routing
+
+    Example (Simple TSP):
+        ```python
+        response = await solve_routing_problem(
+            locations=[
+                {"id": "warehouse", "coordinates": (0, 0)},
+                {"id": "customer_A", "coordinates": (10, 5)},
+                {"id": "customer_B", "coordinates": (5, 10)},
+                {"id": "customer_C", "coordinates": (15, 15)},
+            ],
+            objective="minimize_distance"
+        )
+        # Returns optimal tour visiting all locations
+        ```
+
+    Example (With distance matrix):
+        ```python
+        response = await solve_routing_problem(
+            locations=[
+                {"id": "A"},
+                {"id": "B"},
+                {"id": "C"},
+            ],
+            distance_matrix=[
+                [0, 10, 20],
+                [10, 0, 15],
+                [20, 15, 0],
+            ],
+            objective="minimize_distance"
+        )
+        ```
+    """
+    # Construct request model
+    request_data = {
+        "locations": locations,
+        "vehicles": vehicles or [],
+        "distance_matrix": distance_matrix,
+        "objective": objective,
+        "max_time_ms": max_time_ms,
+    }
+
+    request = SolveRoutingProblemRequest(**request_data)
+
+    # Convert to CP-SAT model
+    cpsat_request = convert_routing_to_cpsat(request)
+
+    # Solve using CP-SAT
+    provider = get_provider_for_tool("solve_constraint_model")
+    cpsat_response = await provider.solve_constraint_model(cpsat_request)
+
+    # Convert response back to routing domain
+    response = convert_cpsat_to_routing_response(cpsat_response, request)
+
+    return response
+
+
+@tool  # type: ignore[arg-type]
+async def solve_budget_allocation(
+    items: list[dict],
+    budgets: list[dict],
+    objective: str = "maximize_value",
+    min_value_threshold: float | None = None,
+    max_cost_threshold: float | None = None,
+    min_items: int | None = None,
+    max_items: int | None = None,
+    max_time_ms: int = 60000,
+) -> SolveBudgetAllocationResponse:
+    """Solve a budget allocation or knapsack problem.
+
+    This is a high-level interface for budget allocation and portfolio selection problems.
+    Use this instead of solve_constraint_model when you need to select items under
+    budget constraints with dependencies and conflicts.
+
+    Args:
+        items: List of items to choose from, each with:
+            - id (str): Unique item identifier
+            - cost (float): Cost of selecting this item
+            - value (float): Value/benefit of this item (ROI, utility, priority score)
+            - resources_required (dict, optional): {resource_name: amount} dict for multi-resource constraints
+            - dependencies (list, optional): Item IDs that must also be selected if this item is selected
+            - conflicts (list, optional): Item IDs that cannot be selected together with this item
+            - metadata (dict, optional): Additional context
+        budgets: List of budget constraints, each with:
+            - resource (str): Resource name (e.g., "money", "time", "headcount")
+            - limit (float): Maximum amount available
+            - penalty_per_unit_over (float, optional): Penalty for exceeding (default 0 = hard constraint)
+        objective: Optimization goal - 'maximize_value', 'maximize_count', or 'minimize_cost'
+        min_value_threshold: Optional minimum total value required
+        max_cost_threshold: Optional maximum total cost allowed
+        min_items: Optional minimum number of items to select
+        max_items: Optional maximum number of items to select
+        max_time_ms: Maximum solver time in milliseconds (default 60000)
+
+    Returns:
+        SolveBudgetAllocationResponse containing:
+            - status: Solution status
+            - selected_items: List of selected item IDs
+            - total_cost: Total cost of selected items
+            - total_value: Total value of selected items
+            - resource_usage: Resource consumption by resource name
+            - resource_slack: Unused capacity by resource name
+            - solve_time_ms: Actual solve time
+            - optimality_gap: Gap from best bound
+            - explanation: Human-readable summary
+
+    Tips for LLMs:
+        - For portfolio selection: items are projects/investments, budgets are capital/resources
+        - For feature prioritization: items are features, value is business value, cost is effort
+        - For campaign allocation: items are campaigns, budgets are ad spend across channels
+        - Dependencies model "must have both or neither" relationships
+        - Conflicts model "can only choose one" relationships
+        - Use maximize_value for ROI optimization
+        - Use maximize_count to get as many items as possible under budget
+
+    Example (Simple Knapsack)::
+
+        response = await solve_budget_allocation(
+            items=[
+                {"id": "project_A", "cost": 5000, "value": 12000},
+                {"id": "project_B", "cost": 3000, "value": 7000},
+                {"id": "project_C", "cost": 4000, "value": 9000},
+            ],
+            budgets=[
+                {"resource": "money", "limit": 10000}
+            ],
+            objective="maximize_value"
+        )
+        # Returns optimal selection maximizing value under $10k budget
+
+    Example (With Dependencies)::
+
+        response = await solve_budget_allocation(
+            items=[
+                {"id": "backend", "cost": 8000, "value": 5000},
+                {"id": "frontend", "cost": 6000, "value": 8000, "dependencies": ["backend"]},
+                {"id": "mobile", "cost": 7000, "value": 6000, "dependencies": ["backend"]},
+            ],
+            budgets=[
+                {"resource": "money", "limit": 15000}
+            ],
+            objective="maximize_value"
+        )
+        # Frontend requires backend, so solver considers dependencies
+
+    Example (Multi-Resource)::
+
+        response = await solve_budget_allocation(
+            items=[
+                {"id": "feature_A", "cost": 5000, "value": 10000,
+                 "resources_required": {"headcount": 2, "time": 3}},
+                {"id": "feature_B", "cost": 3000, "value": 7000,
+                 "resources_required": {"headcount": 1, "time": 2}},
+            ],
+            budgets=[
+                {"resource": "money", "limit": 10000},
+                {"resource": "headcount", "limit": 3},
+                {"resource": "time", "limit": 4}
+            ],
+            objective="maximize_value"
+        )
+        # Respects multiple resource constraints simultaneously
+    """
+    # Construct request model
+    request_data = {
+        "items": items,
+        "budgets": budgets,
+        "objective": objective,
+        "min_value_threshold": min_value_threshold,
+        "max_cost_threshold": max_cost_threshold,
+        "min_items": min_items,
+        "max_items": max_items,
+        "max_time_ms": max_time_ms,
+    }
+
+    request = SolveBudgetAllocationRequest(**request_data)
+
+    # Convert to CP-SAT model
+    cpsat_request = convert_allocation_to_cpsat(request)
+
+    # Solve using CP-SAT
+    provider = get_provider_for_tool("solve_constraint_model")
+    cpsat_response = await provider.solve_constraint_model(cpsat_request)
+
+    # Convert response back to allocation domain
+    response = convert_cpsat_to_allocation_response(cpsat_response, request)
+
+    return response
+
+
+@tool  # type: ignore[arg-type]
+async def solve_assignment_problem(
+    agents: list[dict],
+    tasks: list[dict],
+    cost_matrix: list[list[float]] | None = None,
+    objective: str = "minimize_cost",
+    force_assign_all: bool = True,
+    max_time_ms: int = 60000,
+) -> SolveAssignmentProblemResponse:
+    """Solve a task assignment problem.
+
+    This is a high-level interface for assignment and matching problems. Use this instead
+    of solve_constraint_model when you need to assign tasks to agents/workers with
+    capacity and skill constraints.
+
+    Args:
+        agents: List of agents available to perform tasks, each with:
+            - id (str): Unique agent identifier
+            - capacity (int, optional): Maximum number of tasks (default 1)
+            - skills (list, optional): Skills this agent possesses
+            - cost_multiplier (float, optional): Cost multiplier (default 1.0)
+            - metadata (dict, optional): Additional context
+        tasks: List of tasks to be assigned, each with:
+            - id (str): Unique task identifier
+            - required_skills (list, optional): Skills required for this task
+            - duration (int, optional): Task duration/workload (default 1)
+            - priority (int, optional): Task priority (default 1)
+            - metadata (dict, optional): Additional context
+        cost_matrix: Optional cost matrix where [i][j] = cost to assign task i to agent j.
+                    If not provided, uses agent.cost_multiplier * task.duration
+        objective: Optimization goal - 'minimize_cost', 'maximize_assignments', or 'balance_load'
+        force_assign_all: If True, all tasks must be assigned (infeasible if not possible).
+                         If False, some tasks can remain unassigned.
+        max_time_ms: Maximum solver time in milliseconds (default 60000)
+
+    Returns:
+        SolveAssignmentProblemResponse containing:
+            - status: Solution status
+            - assignments: List of task-to-agent assignments
+            - unassigned_tasks: Tasks that could not be assigned
+            - agent_load: Number of tasks assigned to each agent
+            - total_cost: Total cost of all assignments
+            - solve_time_ms: Actual solve time
+            - optimality_gap: Gap from best bound
+            - explanation: Human-readable summary
+
+    Tips for LLMs:
+        - For task assignment: agents are workers/machines, tasks are jobs/work items
+        - For matching: agents are resources, tasks are requests to match
+        - Skills create hard constraints (incompatible if skills don't match)
+        - Use minimize_cost for cost-optimal assignments
+        - Use maximize_assignments when some tasks are optional
+        - Use balance_load to distribute work evenly across agents
+
+    Example (Simple Assignment)::
+
+        response = await solve_assignment_problem(
+            agents=[
+                {"id": "worker_1", "capacity": 2, "cost_multiplier": 1.0},
+                {"id": "worker_2", "capacity": 2, "cost_multiplier": 1.5},
+            ],
+            tasks=[
+                {"id": "task_A", "duration": 3},
+                {"id": "task_B", "duration": 2},
+                {"id": "task_C", "duration": 1},
+            ],
+            objective="minimize_cost"
+        )
+        # Returns cost-optimal assignment respecting capacity
+
+    Example (With Skills)::
+
+        response = await solve_assignment_problem(
+            agents=[
+                {"id": "dev_1", "capacity": 3, "skills": ["python", "docker"]},
+                {"id": "dev_2", "capacity": 2, "skills": ["python", "react"]},
+            ],
+            tasks=[
+                {"id": "backend", "duration": 5, "required_skills": ["python", "docker"]},
+                {"id": "frontend", "duration": 4, "required_skills": ["react"]},
+            ],
+            objective="minimize_cost"
+        )
+        # Only assigns tasks to agents with matching skills
+
+    Example (Balance Load)::
+
+        response = await solve_assignment_problem(
+            agents=[
+                {"id": "server_1", "capacity": 10},
+                {"id": "server_2", "capacity": 10},
+                {"id": "server_3", "capacity": 10},
+            ],
+            tasks=[
+                {"id": f"job_{i}", "duration": 1} for i in range(15)
+            ],
+            objective="balance_load"
+        )
+        # Distributes tasks evenly across servers (5 per server)
+    """
+    # Construct request model
+    request_data = {
+        "agents": agents,
+        "tasks": tasks,
+        "cost_matrix": cost_matrix,
+        "objective": objective,
+        "force_assign_all": force_assign_all,
+        "max_time_ms": max_time_ms,
+    }
+
+    request = SolveAssignmentProblemRequest(**request_data)
+
+    # Convert to CP-SAT model
+    cpsat_request = convert_assignment_to_cpsat(request)
+
+    # Solve using CP-SAT
+    provider = get_provider_for_tool("solve_constraint_model")
+    cpsat_response = await provider.solve_constraint_model(cpsat_request)
+
+    # Convert response back to assignment domain
+    response = convert_cpsat_to_assignment_response(cpsat_response, request)
 
     return response
 

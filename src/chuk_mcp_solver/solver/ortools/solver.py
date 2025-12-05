@@ -116,7 +116,7 @@ class ORToolsSolver(SolverProvider):
                 solve_time_ms = int((time.time() - start_time) * 1000)
 
                 # Convert status
-                solver_status = self._convert_status(status, request.mode)
+                solver_status = self._convert_status(status, request.mode)  # type: ignore[arg-type]
 
                 # Build response and track outcome
                 if solver_status in (

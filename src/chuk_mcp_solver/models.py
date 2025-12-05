@@ -9,7 +9,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # ============================================================================
 # Constants
@@ -890,6 +890,22 @@ class Location(BaseModel):
         default_factory=dict,
         description="Optional metadata",
     )
+
+    @field_validator("coordinates", mode="before")
+    @classmethod
+    def coerce_coordinates(cls, v: Any) -> Any:
+        """Coerce list to tuple for LLM compatibility."""
+        if isinstance(v, list) and len(v) == 2:
+            return tuple(v)
+        return v
+
+    @field_validator("time_window", mode="before")
+    @classmethod
+    def coerce_time_window(cls, v: Any) -> Any:
+        """Coerce list to tuple for LLM compatibility."""
+        if isinstance(v, list) and len(v) == 2:
+            return tuple(v)
+        return v
 
 
 class Vehicle(BaseModel):

@@ -72,9 +72,13 @@ def convert_allocation_to_cpsat(
             if budget.resource == "money" or budget.resource == "cost":
                 # Use item's primary cost
                 item_cost = item.cost
-            else:
+            elif budget.resource in item.resources_required:
                 # Use resource-specific requirement
-                item_cost = item.resources_required.get(budget.resource, 0.0)
+                item_cost = item.resources_required[budget.resource]
+            else:
+                # Fallback: if no resources_required specified, use primary cost field
+                # This handles cases where LLMs send cost=weight and resource="weight"
+                item_cost = item.cost
 
             if item_cost > 0:
                 # Convert to integer (multiply by 100 for cents if money)

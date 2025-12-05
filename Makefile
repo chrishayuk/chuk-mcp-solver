@@ -93,13 +93,7 @@ dev-install:
 # Run tests
 test:
 	@echo "Running tests..."
-	@if command -v uv >/dev/null 2>&1; then \
-		uv run pytest; \
-	elif command -v pytest >/dev/null 2>&1; then \
-		pytest; \
-	else \
-		python -m pytest; \
-	fi
+	@uv run pytest
 
 # Show current coverage report
 coverage-report:
@@ -371,50 +365,24 @@ publish-manual: build
 # Check code quality
 lint:
 	@echo "Running linters..."
-	@if command -v uv >/dev/null 2>&1; then \
-		uv run ruff check .; \
-		uv run ruff format --check .; \
-	elif command -v ruff >/dev/null 2>&1; then \
-		ruff check .; \
-		ruff format --check .; \
-	else \
-		echo "Ruff not found. Install with: pip install ruff"; \
-	fi
+	@uv run ruff check .
+	@uv run ruff format --check .
 
 # Fix code formatting
 format:
 	@echo "Formatting code..."
-	@if command -v uv >/dev/null 2>&1; then \
-		uv run ruff format .; \
-		uv run ruff check --fix .; \
-	elif command -v ruff >/dev/null 2>&1; then \
-		ruff format .; \
-		ruff check --fix .; \
-	else \
-		echo "Ruff not found. Install with: pip install ruff"; \
-	fi
+	@uv run ruff format .
+	@uv run ruff check --fix .
 
 # Type checking
 typecheck:
 	@echo "Running type checker..."
-	@if command -v uv >/dev/null 2>&1; then \
-		uv run mypy src; \
-	elif command -v mypy >/dev/null 2>&1; then \
-		mypy src; \
-	else \
-		echo "MyPy not found. Install with: pip install mypy"; \
-	fi
+	@uv run mypy src
 
 # Security checks
 security:
 	@echo "Running security checks..."
-	@if command -v uv >/dev/null 2>&1; then \
-		uv run bandit -r src -ll; \
-	elif command -v bandit >/dev/null 2>&1; then \
-		bandit -r src -ll; \
-	else \
-		echo "Bandit not found. Install with: pip install bandit"; \
-	fi
+	@uv run bandit -r src -ll
 
 # Run all checks
 check: lint typecheck security test

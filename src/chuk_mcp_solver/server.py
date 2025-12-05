@@ -265,86 +265,89 @@ async def solve_routing_problem(
     objective: str = "minimize_distance",
     max_time_ms: int = 60000,
 ) -> SolveRoutingProblemResponse:
-    """Solve a vehicle routing problem (TSP/VRP).
+    """Solve vehicle routing problems (TSP/VRP) with optimal route planning.
 
-    This is a high-level interface for routing problems like TSP (Traveling Salesman
-    Problem) and VRP (Vehicle Routing Problem). Use this instead of solve_constraint_model
-    when you need to find optimal routes for vehicles visiting locations.
+    Find optimal routes for vehicles visiting locations. Supports single-vehicle TSP,
+    multi-vehicle VRP with capacity constraints, and multiple optimization objectives.
 
     Args:
         locations: List of locations to visit, each with:
-            - id (str): Unique location identifier
-            - coordinates (tuple, optional): (x, y) or (lat, lon) coordinates
-            - service_time (int, optional): Time spent at location (default 0)
-            - time_window (tuple, optional): (earliest, latest) arrival time
-            - demand (int, optional): Demand at location for capacity constraints
-            - priority (int, optional): Location priority (default 1)
-        vehicles: Optional list of vehicles with:
-            - id (str): Vehicle identifier
-            - capacity (int, optional): Maximum load (default 999999)
-            - start_location (str): Starting location ID
-            - end_location (str, optional): Ending location if different from start
-            - max_distance (int, optional): Maximum distance vehicle can travel
-            - max_time (int, optional): Maximum time vehicle can be in use
-            - cost_per_distance (float, optional): Cost per unit distance (default 1.0)
-            - fixed_cost (float, optional): Fixed cost if vehicle is used (default 0.0)
-        distance_matrix: Optional distance matrix where [i][j] = distance from location i to j.
-                        If not provided, uses Euclidean distance from coordinates.
-        objective: Optimization goal - 'minimize_distance', 'minimize_time',
-                  'minimize_vehicles', or 'minimize_cost'
-        max_time_ms: Maximum solver time in milliseconds (default 60000)
+            - id: Unique identifier (required)
+            - coordinates: (x, y) tuple for Euclidean distance (optional if distance_matrix provided)
+            - demand: Load to pick up at this location (default 0)
+            - service_time: Time spent at location in minutes (default 0)
+        vehicles: List of vehicles (optional, defaults to single vehicle if omitted):
+            - id: Vehicle identifier (required)
+            - capacity: Maximum load capacity (default unlimited)
+            - start_location: Starting location ID (required)
+            - cost_per_distance: Cost per unit distance (default 1.0)
+            - fixed_cost: Fixed cost if vehicle is used (default 0.0)
+        distance_matrix: Optional distance matrix [i][j] = distance from location i to j.
+            If omitted, uses Euclidean distance from coordinates.
+        objective: Optimization goal (default "minimize_distance"):
+            - "minimize_distance": Shortest total route length
+            - "minimize_time": Shortest total time (distance + service times)
+            - "minimize_cost": Lowest total cost (fixed + distance costs)
+            - "minimize_vehicles": Use fewest vehicles possible
+        max_time_ms: Solver time limit in milliseconds (default 60000)
 
     Returns:
-        SolveRoutingProblemResponse containing:
-            - status: Solution status
-            - routes: List of vehicle routes with sequences
-            - total_distance: Total distance across all routes
-            - total_time: Total time including service times
-            - total_cost: Total cost
+        SolveRoutingProblemResponse with:
+            - status: OPTIMAL, FEASIBLE, or INFEASIBLE
+            - routes: List of routes, each with vehicle_id, sequence of location IDs, total_distance, load_timeline
+            - total_distance: Sum of all route distances
+            - total_cost: Total cost across all routes
             - vehicles_used: Number of vehicles actually used
-            - solve_time_ms: Actual solve time
-            - optimality_gap: Gap from best bound
             - explanation: Human-readable summary
 
     Tips for LLMs:
-        - For TSP: Provide locations without vehicles (assumes single vehicle)
-        - For VRP: Provide multiple vehicles with capacity constraints
-        - If you have coordinates, you don't need distance_matrix
-        - If you have distance_matrix, you don't need coordinates
-        - Service times add to total route time at each location
-        - Use minimize_distance for shortest tour
-        - Use minimize_cost for budget-aware routing
+        - **TSP (single vehicle)**: Omit vehicles parameter or provide one vehicle
+        - **VRP (multiple vehicles)**: Provide multiple vehicles with capacity limits
+        - **Capacity constraints**: Set demand per location and capacity per vehicle
+        - **Use coordinates** for geographic routing (automatically calculates distances)
+        - **Use distance_matrix** when you have pre-computed distances or non-Euclidean metrics
+        - **minimize_vehicles**: When you want to use as few vehicles as possible
+        - **minimize_cost**: When vehicles have different costs (e.g., small truck vs large truck)
+        - First location in route sequence is always the start location
+        - Routes automatically return to start location (depot)
 
-    Example (Simple TSP):
-        ```python
+    Example - Simple TSP:
         response = await solve_routing_problem(
             locations=[
                 {"id": "warehouse", "coordinates": (0, 0)},
-                {"id": "customer_A", "coordinates": (10, 5)},
-                {"id": "customer_B", "coordinates": (5, 10)},
-                {"id": "customer_C", "coordinates": (15, 15)},
-            ],
-            objective="minimize_distance"
+                {"id": "store_A", "coordinates": (10, 5)},
+                {"id": "store_B", "coordinates": (5, 10)},
+            ]
         )
-        # Returns optimal tour visiting all locations
-        ```
+        # Single vehicle visits all locations, returns to warehouse
 
-    Example (With distance matrix):
-        ```python
+    Example - Multi-Vehicle VRP:
         response = await solve_routing_problem(
             locations=[
-                {"id": "A"},
-                {"id": "B"},
-                {"id": "C"},
+                {"id": "depot", "coordinates": (0, 0), "demand": 0},
+                {"id": "customer_1", "coordinates": (10, 5), "demand": 15},
+                {"id": "customer_2", "coordinates": (5, 10), "demand": 20},
+                {"id": "customer_3", "coordinates": (15, 15), "demand": 25},
             ],
-            distance_matrix=[
-                [0, 10, 20],
-                [10, 0, 15],
-                [20, 15, 0],
+            vehicles=[
+                {"id": "truck_1", "capacity": 50, "start_location": "depot"},
+                {"id": "truck_2", "capacity": 40, "start_location": "depot"},
             ],
             objective="minimize_distance"
         )
-        ```
+        # Returns optimal routes respecting capacity limits
+
+    Example - Minimize Fleet Size:
+        response = await solve_routing_problem(
+            locations=[...],  # 10 customers
+            vehicles=[
+                {"id": "truck_1", "capacity": 100, "start_location": "depot"},
+                {"id": "truck_2", "capacity": 100, "start_location": "depot"},
+                {"id": "truck_3", "capacity": 100, "start_location": "depot"},
+            ],
+            objective="minimize_vehicles"
+        )
+        # Uses minimum number of trucks needed to serve all customers
     """
     # Construct request model
     request_data = {

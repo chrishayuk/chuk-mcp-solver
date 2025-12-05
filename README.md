@@ -3,8 +3,8 @@
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-compatible-brightgreen.svg)](https://modelcontextprotocol.io)
-[![Tests](https://img.shields.io/badge/tests-238%20passed-success.svg)](tests/)
-[![Coverage](https://img.shields.io/badge/coverage-93%25-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-246%20passed-success.svg)](tests/)
+[![Coverage](https://img.shields.io/badge/coverage-94%25-brightgreen.svg)](tests/)
 
 🔧 **General-purpose constraint and optimization solver as an MCP server**
 
@@ -61,14 +61,17 @@ A powerful Model Context Protocol (MCP) server that provides constraint satisfac
 - Cache hit rate tracking
 
 ✅ **Production Quality**
-- 238 comprehensive tests (all passing)
-- 93% test coverage
+- 246 comprehensive tests (all passing)
+- 94% test coverage
 - Type-safe with mypy
 - Extensive error handling
 
 🎯 **High-Level Problem APIs** (Phase 4: LLM-Native Schemas) 🆕
 - **Scheduling**: Tasks with dependencies, resources, deadlines → optimal project schedules
 - **Routing**: TSP/VRP with locations and vehicles → optimal delivery routes
+  - ✨ **Multi-vehicle VRP with capacity constraints** (Phase 1 - NEW!)
+  - Single-vehicle TSP, minimize distance/time/cost/vehicles objectives
+  - Load timeline tracking, service times, vehicle-specific costs
 - **Budget Allocation**: Items with costs, values, dependencies → optimal portfolio selection
 - **Assignment**: Tasks with skills to agents with capacity → optimal task-agent matching
 - Automatically builds CP-SAT models from high-level specs
@@ -85,11 +88,12 @@ A powerful Model Context Protocol (MCP) server that provides constraint satisfac
 - Returns: optimal schedule with start/end times, critical path, resource utilization
 - See: [`scheduling_demo.py`](examples/scheduling_demo.py)
 
-**🚚 Delivery Driver**: "Find the shortest route visiting 10 customers starting from the warehouse"
-- High-level API: `solve_routing_problem(locations, objective="minimize_distance")`
-- No need to understand circuit constraints or Hamiltonian tours
-- Returns: optimal route sequence, total distance, time with service times
-- See: [`routing_demo.py`](examples/routing_demo.py)
+**🚚 Delivery Driver**: "Find the shortest route visiting 10 customers with 2 trucks, respecting vehicle capacity"
+- High-level API: `solve_routing_problem(locations, vehicles, objective="minimize_distance")`
+- ✨ Now supports multi-vehicle VRP with capacity constraints!
+- No need to understand flow conservation, MTZ constraints, or subtour elimination
+- Returns: optimal routes per vehicle, total distance, load timelines
+- See: [`routing_demo.py`](examples/routing_demo.py) and [`vrp_multi_vehicle_demo.py`](examples/vrp_multi_vehicle_demo.py)
 
 **💰 Product Manager**: "Select projects to maximize ROI under $100k budget with dependencies and conflicts"
 - High-level API: `solve_budget_allocation(items, budgets, objective="maximize_value")`
@@ -1159,17 +1163,28 @@ response = await solve_routing_problem(
 
 This tool automatically converts your high-level routing problem into a CP-SAT model with:
 - Boolean arc variables for each possible location-to-location connection
-- Circuit constraint ensuring valid Hamiltonian tour (visits each location exactly once)
-- Distance/time/cost objective function
+- **Multi-vehicle support** with flow conservation and MTZ subtour elimination ✨ NEW
+- **Capacity constraints** for vehicle load limits ✨ NEW
+- Circuit constraint for single-vehicle TSP (Hamiltonian tour)
+- Distance/time/cost/vehicles objective functions
 - Support for service times at locations
 - Vehicle cost modeling (fixed + per-distance)
+- Load timeline tracking for capacity-constrained routing ✨ NEW
+
+**Supported Features:**
+
+✅ Single-vehicle TSP (Traveling Salesman Problem)
+✅ Multi-vehicle VRP (Vehicle Routing Problem) with capacity constraints ✨ NEW (Phase 1)
+✅ Multiple optimization objectives: minimize_distance, minimize_time, minimize_cost, minimize_vehicles
+✅ Service times at locations
+✅ Vehicle-specific costs (fixed + per-distance)
+✅ Demand/capacity constraints
 
 **Current Limitations:**
 
-- Single-vehicle TSP only (multi-vehicle VRP coming in Phase 4.1.2b)
 - No time window constraints yet
-- No capacity-constrained routing yet
 - No pickup and delivery yet
+- No heterogeneous fleets (different vehicle types with different capabilities)
 
 See [`routing_demo.py`](examples/routing_demo.py) for comprehensive examples.
 
@@ -1673,15 +1688,26 @@ chuk-mcp-solver/
 
 ### Phase 4: LLM-Native Problem Schemas 🚧 (In Progress)
 
+**Completed:**
 - [x] High-level scheduling API (`solve_scheduling_problem`)
 - [x] Task model with dependencies, resources, deadlines
 - [x] Resource model with capacity constraints
 - [x] Automatic CP-SAT model generation from high-level specs
 - [x] Rich scheduling responses (makespan, critical path, utilization)
 - [x] Scheduling examples and documentation
-- [ ] High-level routing API (TSP/VRP)
-- [ ] High-level budget allocation API
-- [ ] High-level assignment API
+- [x] High-level routing API (TSP/VRP) ✨ NEW
+- [x] Multi-vehicle VRP with capacity constraints ✨ NEW (Phase 4.1)
+- [x] MTZ subtour elimination for VRP ✨ NEW
+- [x] Multiple optimization objectives (distance, time, cost, vehicles) ✨ NEW
+- [x] Load timeline tracking ✨ NEW
+- [x] VRP examples and documentation ✨ NEW
+- [x] High-level budget allocation API
+- [x] High-level assignment API
+
+**In Progress:**
+- [ ] Time window constraints for VRP
+- [ ] Pickup and delivery for VRP
+- [ ] Heterogeneous fleet support
 
 ### Phase 5-7: Planned 🔮
 

@@ -91,7 +91,7 @@ def configure_solver(solver: cp_model.CpSolver, request: SolveConstraintModelReq
         # Map our strategy enum to OR-Tools parameters
         if request.search.strategy == SearchStrategy.FIRST_FAIL:
             solver.parameters.search_branching = cp_model.FIXED_SEARCH
-            solver.parameters.preferred_variable_order = cp_model.CHOOSE_FIRST
+            solver.parameters.preferred_variable_order = cp_model.CHOOSE_FIRST  # type: ignore[assignment]
         elif request.search.strategy == SearchStrategy.RANDOM:
             solver.parameters.randomize_search = True
 
